@@ -46,6 +46,19 @@ export function createViewState(columns: string[]): ViewState {
 }
 
 /**
+ * A view stored by an older build is missing whatever has been added since, so it is
+ * filled in from the current defaults rather than trusted as-is.
+ */
+export function normalizeViewState(stored: unknown): ViewState {
+    const base = createViewState([]);
+    if (!stored || typeof stored !== 'object') {
+        return base;
+    }
+    const defined = Object.entries(stored as Record<string, unknown>).filter(([, v]) => v !== undefined);
+    return { ...base, ...Object.fromEntries(defined) } as ViewState;
+}
+
+/**
  * Closing a view only costs the user something once they have narrowed it down.
  * The toolbar search is global, so it is not a view's to lose.
  */

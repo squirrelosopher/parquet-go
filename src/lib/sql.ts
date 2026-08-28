@@ -35,7 +35,7 @@ export interface QuerySpec {
 }
 
 /** A trailing semicolon is fine on its own but not once the query is a subquery. */
-export const trimStatement = (sql: string) => sql.trim().replace(/;+\s*$/, '');
+export const trimStatement = (sql: string | undefined) => (sql ?? '').trim().replace(/;+\s*$/, '');
 
 /** Filters, sorting and paging wrap the user's query rather than replacing it. */
 function source(spec: QuerySpec): string {

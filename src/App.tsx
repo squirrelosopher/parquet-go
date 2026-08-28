@@ -15,7 +15,7 @@ import { listFiles, getActiveId, getBuffer, addFile, clearFiles, renameFile as r
 import { dropTable, exportQueryCsv } from './lib/duckdb';
 import { exportSql } from './lib/sql';
 import { downloadCsv } from './lib/exportCsv';
-import { createViewState, DEFAULT_VIEW_NAME, hasFilters, type View, type ViewState } from './lib/views';
+import { createViewState, DEFAULT_VIEW_NAME, hasFilters, normalizeViewState, type View, type ViewState } from './lib/views';
 import type { Dataset } from './lib/types';
 
 const SIDEBAR_WIDTH = 280;
@@ -86,7 +86,11 @@ export function App() {
                     const ids = new Set(views.map((v) => v.id));
                     return {
                         views,
-                        states: { ...pick(stored.states, (id) => ids.has(id)), ...m.states },
+                        states: {
+                            ...Object.fromEntries(Object.entries(pick(stored.states, (id) => ids.has(id)))
+                                .map(([id, state]) => [id, normalizeViewState(state)])),
+                            ...m.states,
+                        },
                         activeByFile: { ...pick(stored.activeByFile, (f) => !have.has(f)), ...m.activeByFile },
                     };
                 });
