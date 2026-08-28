@@ -367,7 +367,7 @@ export function App() {
             }
             ds = await loadDataset(meta.id, meta.name, buffer);
         }
-        const sql = exportSql({ table: ds.table, columns: ds.columns, filters: [], search: '', sorting: [] }, ds.columns, opts.limit);
+        const sql = exportSql({ table: ds.table, sql: '', columns: ds.columns, filters: [], search: '', sorting: [] }, ds.columns, opts.limit);
         downloadCsv(ds.name, await exportQueryCsv(sql, opts.header));
     };
 

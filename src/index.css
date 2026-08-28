@@ -132,6 +132,60 @@ body {
     background-color: var(--mantine-color-body);
 }
 
+/* ---- SQL editor -------------------------------------------------------- */
+
+.sql-editor {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    flex: none;
+    padding: 0 8px 8px;
+    border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+/* Fixed height: the box never grows with the query, it scrolls. */
+.sql-editor-code {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--mantine-color-default-border);
+    border-radius: var(--mantine-radius-md);
+}
+.sql-editor-code .cm-editor {
+    background-color: transparent;
+}
+.sql-editor-code .cm-editor.cm-focused {
+    outline: none;
+}
+.sql-editor-code .cm-scroller {
+    overflow-y: auto;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: var(--mantine-font-size-sm);
+}
+.sql-editor-code .cm-gutters {
+    display: none;
+}
+.sql-editor-code .cm-content {
+    padding: 8px 10px;
+}
+
+/* Holds the row's height while CodeMirror is fetched, so nothing jumps. */
+.sql-editor-pending {
+    height: 142px;
+    flex: none;
+    border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.sql-editor-actions {
+    flex: none;
+    justify-content: flex-start;
+}
+
+/* A query is still driving the view even with the box closed. */
+.sql-toggle-active {
+    color: var(--mantine-color-indigo-light-color);
+}
+
 /* ---- Loading skeleton --------------------------------------------------- */
 
 .table-skeleton {

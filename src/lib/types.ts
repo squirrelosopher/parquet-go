@@ -4,6 +4,8 @@ export type Row = Record<string, unknown>;
 export interface Dataset {
     name: string;
     table: string;
+    /** Readable name for the table, for use in the SQL box. */
+    alias: string;
     columns: string[];
     rowCount: number;
 }

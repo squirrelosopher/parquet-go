@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useMemo, useState, type MutableRefObject, type ReactNode } from 'react';
-import { MantineReactTable, useMantineReactTable, MRT_ShowHideColumnsButton, MRT_ToggleFiltersButton, type MRT_ColumnDef, type MRT_Updater } from 'mantine-react-table';
-import { Group, Text } from '@mantine/core';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type MutableRefObject, type ReactNode } from 'react';
+import { MantineReactTable, useMantineReactTable, MRT_ShowHideColumnsButton, MRT_ToggleFiltersButton, MRT_TopToolbar, type MRT_ColumnDef, type MRT_Updater } from 'mantine-react-table';
+import { Box, Group, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { SearchBox } from './SearchBox';
 import { DensityToggle } from './DensityToggle';
 import { FullscreenToggle } from './FullscreenToggle';
+import { SqlToggle } from './SqlToggle';
+// The editor is off by default and drags in CodeMirror, so it is fetched on first use.
+const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlEditor })));
 import { ColumnFilter } from './ColumnFilter';
 import { ArrowUp, ArrowDown, Filter, FilterX, Columns3, TriangleAlert } from 'lucide-react';
 import type { Dataset, Row } from '../lib/types';
 import { resolveUpdater, type ViewState } from '../lib/views';
-import { execute, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
-import { countSql, exportSql, pageSql, updateCellSql, type QuerySpec } from '../lib/sql';
+import { describeQuery, execute, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
+import { countSql, exportSql, pageSql, trimStatement, updateCellSql, type QuerySpec } from '../lib/sql';
 import { formatCell } from '../lib/format';
 import { downloadCsv } from '../lib/exportCsv';
 import { EditableHeader } from './EditableHeader';
@@ -51,38 +54,73 @@ interface DataTableProps {
 }
 
 export function DataTable({ dataset, exportRef, viewState, onViewStateChange, tabs }: DataTableProps) {
-    const keys = dataset.columns;
-    const [labels, setLabels] = useState(keys);
+    const [labels, setLabels] = useState(dataset.columns);
     const [compact, setCompact] = useState(true);
     // The toolbar search and the filter row's visibility span every view, so they sit
     // beside the grid rather than inside a view's state. The filter *values* stay per view.
     const [search, setSearch] = useState('');
     const [showFilters, setShowFilters] = useState(false);
     const [fullscreen, setFullscreen] = useState(false);
+    const [sqlOpen, setSqlOpen] = useState(false);
+    const [sqlColumns, setSqlColumns] = useState<string[] | null>(null);
     const [rows, setRows] = useState<Row[]>([]);
     const [sample, setSample] = useState<Row[]>([]);
     const [total, setTotal] = useState(dataset.rowCount);
     const [loading, setLoading] = useState(false);
     const [revision, setRevision] = useState(0);
 
+    const userSql = trimStatement(viewState.sql);
+    const keys = useMemo(() => (userSql ? sqlColumns ?? [] : dataset.columns), [userSql, sqlColumns, dataset.columns]);
+    const ready = !userSql || sqlColumns !== null;
+
     useEffect(() => {
-        setLabels(dataset.columns);
+        setLabels(keys);
+    }, [keys]);
+
+    useEffect(() => {
         setSearch('');
     }, [dataset]);
+
+    // Whatever the active view's query returns decides the grid's columns — on a fresh
+    // run, on a tab switch, and on a restore from storage.
+    useEffect(() => {
+        if (!userSql) {
+            setSqlColumns(null);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const found = await describeQuery(userSql);
+                if (!cancelled) {
+                    setSqlColumns(found);
+                }
+            } catch {
+                if (!cancelled) {
+                    setSqlColumns([]);
+                }
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [userSql]);
 
     const { pageIndex, pageSize } = viewState.pagination;
     const spec: QuerySpec = {
         table: dataset.table,
+        sql: viewState.sql,
         columns: keys,
         filters: viewState.columnFilters,
         search,
         sorting: viewState.sorting,
     };
     // Effects key off the query's shape, not the objects that describe it.
-    const specKey = JSON.stringify([spec.table, spec.columns, spec.filters, spec.search, spec.sorting]);
+    const specKey = JSON.stringify([spec.table, spec.sql, spec.columns, spec.filters, spec.search, spec.sorting]);
 
     // One page of rows — the only rows that ever become JS objects.
     useEffect(() => {
+        if (!ready) {
+            return;
+        }
         let cancelled = false;
         // Most queries land in tens of milliseconds. Announcing those would flash a bar
         // on every keystroke for work that is already done, so only slow ones show one.
@@ -106,10 +144,13 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             }
         })();
         return () => { cancelled = true; window.clearTimeout(announce); };
-    }, [specKey, pageIndex, pageSize, revision]);
+    }, [specKey, pageIndex, pageSize, revision, ready]);
 
     // The count only moves when the predicate does, so paging does not re-scan.
     useEffect(() => {
+        if (!ready) {
+            return;
+        }
         let cancelled = false;
         (async () => {
             try {
@@ -124,7 +165,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             }
         })();
         return () => { cancelled = true; };
-    }, [specKey, revision]);
+    }, [specKey, revision, ready]);
 
     // Column widths come from a fixed sample so they do not shift from page to page.
     useEffect(() => {
@@ -142,7 +183,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             }
         })();
         return () => { cancelled = true; };
-    }, [dataset.table]);
+    }, [dataset.table, userSql, ready]);
 
     /**
      * Native fullscreen is taken on the document rather than the grid: only descendants
@@ -193,6 +234,40 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         return () => window.removeEventListener('keydown', onKey, true);
     }, [fullscreen, toggleFullscreen]);
 
+    const applySql = useCallback(async (draft: string) => {
+        const text = trimStatement(draft);
+        if (!text) {
+            onViewStateChange((previous) => ({ ...previous, sql: '', columnFilters: [], sorting: [], pagination: { ...previous.pagination, pageIndex: 0 } }));
+            return;
+        }
+        try {
+            // DESCRIBE both validates the query and names its columns, without running it.
+            const found = await describeQuery(text);
+            setSqlColumns(found);
+            onViewStateChange((previous) => ({
+                ...previous,
+                sql: text,
+                // The old columns are gone, so anything naming them has to go with them.
+                columnFilters: [],
+                sorting: found.length ? [{ id: found[0], desc: false }] : [],
+                pagination: { ...previous.pagination, pageIndex: 0 },
+            }));
+        } catch (error) {
+            failed('run that query', error);
+        }
+    }, [onViewStateChange]);
+
+    const clearSql = useCallback(() => {
+        setSqlColumns(null);
+        onViewStateChange((previous) => ({
+            ...previous,
+            sql: '',
+            columnFilters: [],
+            sorting: dataset.columns.length ? [{ id: dataset.columns[0], desc: false }] : [],
+            pagination: { ...previous.pagination, pageIndex: 0 },
+        }));
+    }, [onViewStateChange, dataset.columns]);
+
     const renameColumn = useCallback((index: number, name: string) => {
         setLabels((prev) => prev.map((l, i) => (i === index ? name : l)));
     }, []);
@@ -204,7 +279,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         } catch (error) {
             failed('save that cell', error);
         }
-    }, [dataset.table]);
+    }, [dataset.table, userSql, ready]);
 
     /** Route one slice of the grid's state back into the active view. */
     const patch = useCallback(
@@ -248,7 +323,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         manualSorting: true,
         manualPagination: true,
         rowCount: total,
-        getRowId: (row) => String(row[ROW_ID]),
+        getRowId: (row, index) => String(row[ROW_ID] ?? index),
         enableColumnResizing: true,
         enableStickyHeader: true,
         enableFacetedValues: false,
@@ -256,7 +331,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         enableSortingRemoval: false,
         enableDensityToggle: false,
         enableFullScreenToggle: true,
-        enableEditing: true,
+        enableEditing: !userSql,
         editDisplayMode: 'cell',
         sortDescFirst: false,
         positionGlobalFilter: 'none',
@@ -300,10 +375,26 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         // MRT hides the first/last buttons under three pages; keep all four in place
         // and let them disable themselves, so the control never changes shape.
         mantinePaginationProps: { size: 'sm', withEdges: true },
+        renderTopToolbar: ({ table }) => (
+            <>
+                <MRT_TopToolbar table={table} />
+                {sqlOpen && (
+                    <Suspense fallback={<Box className="sql-editor-pending" />}>
+                    <SqlEditor
+                        value={viewState.sql}
+                        alias={dataset.alias}
+                        columns={dataset.columns}
+                        onRun={(draft) => void applySql(draft)}
+                        onClear={clearSql}
+                    />
+                    </Suspense>
+                )}
+            </>
+        ),
         renderTopToolbarCustomActions: () => <>{tabs}</>,
         renderBottomToolbarCustomActions: () => (
             <Text className="dataset-summary" c="dimmed" fz="xs" style={{ whiteSpace: 'nowrap' }}>
-                {dataset.name} · {dataset.rowCount.toLocaleString()} rows × {keys.length} cols
+                {dataset.name} · {userSql ? `query · ${keys.length} cols` : `${dataset.rowCount.toLocaleString()} rows × ${keys.length} cols`}
             </Text>
         ),
         renderToolbarInternalActions: ({ table }) => (
@@ -311,6 +402,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                 <SearchBox table={table} />
                 <MRT_ToggleFiltersButton table={table} />
                 <MRT_ShowHideColumnsButton table={table} />
+                <SqlToggle open={sqlOpen} active={!!userSql} onToggle={() => setSqlOpen((o) => !o)} />
                 <DensityToggle compact={compact} onToggle={() => setCompact((c) => !c)} />
                 <FullscreenToggle active={fullscreen} onToggle={toggleFullscreen} />
             </Group>

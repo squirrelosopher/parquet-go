@@ -26,10 +26,21 @@ const contains = (column: string, value: string) => {
 /** A view, expressed as the query it stands for. */
 export interface QuerySpec {
     table: string;
+    /** When set, the view reads from this query instead of the file's table. */
+    sql: string;
     columns: string[];
     filters: MRT_ColumnFiltersState;
     search: string;
     sorting: MRT_SortingState;
+}
+
+/** A trailing semicolon is fine on its own but not once the query is a subquery. */
+export const trimStatement = (sql: string) => sql.trim().replace(/;+\s*$/, '');
+
+/** Filters, sorting and paging wrap the user's query rather than replacing it. */
+function source(spec: QuerySpec): string {
+    const sql = trimStatement(spec.sql);
+    return sql ? `(${sql}) AS q` : ident(spec.table);
 }
 
 function where(spec: QuerySpec): string {
@@ -56,19 +67,21 @@ function order(spec: QuerySpec): string {
 }
 
 export function pageSql(spec: QuerySpec, limit: number, offset: number): string {
-    const columns = [ROW_ID, ...spec.columns].map(ident).join(', ');
-    return `SELECT ${columns} FROM ${ident(spec.table)}${where(spec)}${order(spec)} LIMIT ${limit} OFFSET ${offset}`;
+    // A user query carries no row id, so rows from one are not editable.
+    const selected = trimStatement(spec.sql) ? spec.columns : [ROW_ID, ...spec.columns];
+    const columns = selected.map(ident).join(', ');
+    return `SELECT ${columns} FROM ${source(spec)}${where(spec)}${order(spec)} LIMIT ${limit} OFFSET ${offset}`;
 }
 
 export function countSql(spec: QuerySpec): string {
-    return `SELECT count(*)::BIGINT AS n FROM ${ident(spec.table)}${where(spec)}`;
+    return `SELECT count(*)::BIGINT AS n FROM ${source(spec)}${where(spec)}`;
 }
 
 /** Renamed columns are aliased, so the export carries the headers on screen. */
 export function exportSql(spec: QuerySpec, labels: string[], limit?: number): string {
     const columns = spec.columns.map((c, i) => `${ident(c)} AS ${ident(labels[i] ?? c)}`).join(', ');
     const limited = limit ? ` LIMIT ${limit}` : '';
-    return `SELECT ${columns} FROM ${ident(spec.table)}${where(spec)}${order(spec)}${limited}`;
+    return `SELECT ${columns} FROM ${source(spec)}${where(spec)}${order(spec)}${limited}`;
 }
 
 export function updateCellSql(table: string, rowId: number, column: string, value: string): string {

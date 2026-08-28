@@ -55,8 +55,33 @@ export const ROW_ID = '__rid';
 
 export interface LoadedTable {
     table: string;
+    alias: string;
     columns: string[];
     rowCount: number;
+}
+
+const tableName = (id: string) => `t_${id.replace(/-/g, '')}`;
+
+/**
+ * A name worth typing in the SQL box. File names are already unique, so sanitising
+ * one keeps aliases unique too; leading digits get a prefix to stay a valid identifier.
+ */
+export function aliasFor(fileName: string): string {
+    const cleaned = fileName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return /^[a-z_]/.test(cleaned) ? cleaned : `t_${cleaned}`;
+}
+
+/** Points the readable alias at the file's table; safe to call again after a rename. */
+export async function aliasTable(id: string, fileName: string): Promise<string> {
+    const alias = aliasFor(fileName);
+    await run((conn) => conn.query(`CREATE OR REPLACE VIEW ${ident(alias)} AS SELECT * FROM ${ident(tableName(id))}`));
+    return alias;
+}
+
+/** Column names a query would produce, and the cheapest way to find out if it is valid. */
+export async function describeQuery(sql: string): Promise<string[]> {
+    const described = await query(`DESCRIBE ${sql}`);
+    return described.map((r) => String((r as { column_name: string }).column_name));
 }
 
 const ident = (name: string) => `"${name.replace(/"/g, '""')}"`;
@@ -65,7 +90,7 @@ const literal = (value: string) => `'${value.replace(/'/g, "''")}'`;
 export async function loadTable(id: string, name: string, buffer: ArrayBuffer): Promise<LoadedTable> {
     const db = await getDb();
     const file = `${id}-${name}`;
-    const table = `t_${id.replace(/-/g, '')}`;
+    const table = tableName(id);
     const ext = name.split('.').pop()?.toLowerCase();
     const reader = ext === 'parquet' || ext === 'pq'
         ? `read_parquet(${literal(file)})`
@@ -83,7 +108,9 @@ export async function loadTable(id: string, name: string, buffer: ArrayBuffer): 
             .filter((c) => c !== ROW_ID);
         const counted = await conn.query(`SELECT count(*)::BIGINT AS n FROM ${ident(table)}`);
         const rowCount = Number((counted.toArray()[0] as unknown as { n: bigint }).n);
-        return { table, columns, rowCount };
+        const alias = aliasFor(name);
+        await conn.query(`CREATE OR REPLACE VIEW ${ident(alias)} AS SELECT * FROM ${ident(table)}`);
+        return { table, alias, columns, rowCount };
     });
 }
 
@@ -91,7 +118,7 @@ export async function dropTable(id: string): Promise<void> {
     if (!pending) {
         return;
     }
-    await run((conn) => conn.query(`DROP TABLE IF EXISTS ${ident(`t_${id.replace(/-/g, '')}`)}`));
+    await run((conn) => conn.query(`DROP TABLE IF EXISTS ${ident(tableName(id))} CASCADE`));
 }
 
 /** Arrow rows are lazy proxies; hand the grid plain objects it can hold on to. */

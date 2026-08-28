@@ -23,6 +23,8 @@ export interface View {
 export interface ViewState {
     sorting: MRT_SortingState;
     columnFilters: MRT_ColumnFiltersState;
+    /** The query this view reads from; empty means the file's own table. */
+    sql: string;
     pagination: MRT_PaginationState;
     columnVisibility: MRT_VisibilityState;
     columnSizing: MRT_ColumnSizingState;
@@ -35,6 +37,7 @@ export function createViewState(columns: string[]): ViewState {
     return {
         sorting: columns.length ? [{ id: columns[0], desc: false }] : [],
         columnFilters: [],
+        sql: '',
         pagination: { pageIndex: 0, pageSize: PAGE_SIZE },
         columnVisibility: {},
         columnSizing: {},
