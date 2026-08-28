@@ -4,6 +4,7 @@ import { Group, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { SearchBox } from './SearchBox';
 import { DensityToggle } from './DensityToggle';
+import { FullscreenToggle } from './FullscreenToggle';
 import { ColumnFilter } from './ColumnFilter';
 import { ArrowUp, ArrowDown, Filter, FilterX, Columns3, TriangleAlert } from 'lucide-react';
 import type { Dataset, Row } from '../lib/types';
@@ -57,6 +58,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
     // beside the grid rather than inside a view's state. The filter *values* stay per view.
     const [search, setSearch] = useState('');
     const [showFilters, setShowFilters] = useState(false);
+    const [fullscreen, setFullscreen] = useState(false);
     const [rows, setRows] = useState<Row[]>([]);
     const [sample, setSample] = useState<Row[]>([]);
     const [total, setTotal] = useState(dataset.rowCount);
@@ -142,6 +144,27 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         return () => { cancelled = true; };
     }, [dataset.table]);
 
+    useEffect(() => {
+        if (!fullscreen) {
+            return;
+        }
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') {
+                return;
+            }
+            // Whatever is being typed in gets Escape first — cancelling a cell edit or
+            // closing the search should not also drop out of fullscreen.
+            const target = e.target as HTMLElement | null;
+            if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+                return;
+            }
+            setFullscreen(false);
+        };
+        // Capture, because a tooltip on the focused control would otherwise swallow it.
+        window.addEventListener('keydown', onKey, true);
+        return () => window.removeEventListener('keydown', onKey, true);
+    }, [fullscreen]);
+
     const renameColumn = useCallback((index: number, name: string) => {
         setLabels((prev) => prev.map((l, i) => (i === index ? name : l)));
     }, []);
@@ -204,7 +227,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         enableRowVirtualization: false,
         enableSortingRemoval: false,
         enableDensityToggle: false,
-        enableFullScreenToggle: false,
+        enableFullScreenToggle: true,
         enableEditing: true,
         editDisplayMode: 'cell',
         sortDescFirst: false,
@@ -229,6 +252,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             columnOrder: viewState.columnOrder,
             showColumnFilters: showFilters,
             isLoading: loading,
+            isFullScreen: fullscreen,
         },
         onSortingChange: patch('sorting'),
         onColumnFiltersChange: patch('columnFilters'),
@@ -236,6 +260,8 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         onColumnVisibilityChange: patch('columnVisibility'),
         onColumnSizingChange: patch('columnSizing'),
         onColumnOrderChange: patch('columnOrder'),
+        onIsFullScreenChange: (updater: MRT_Updater<boolean>) =>
+            setFullscreen((previous) => resolveUpdater(updater, previous)),
         onShowColumnFiltersChange: (updater: MRT_Updater<boolean>) =>
             setShowFilters((previous) => resolveUpdater(updater, previous)),
         onGlobalFilterChange: (updater: MRT_Updater<string | undefined>) =>
@@ -258,6 +284,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                 <MRT_ToggleFiltersButton table={table} />
                 <MRT_ShowHideColumnsButton table={table} />
                 <DensityToggle compact={compact} onToggle={() => setCompact((c) => !c)} />
+                <FullscreenToggle active={fullscreen} onToggle={() => setFullscreen((f) => !f)} />
             </Group>
         ),
     });

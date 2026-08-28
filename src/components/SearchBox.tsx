@@ -27,6 +27,9 @@ export function SearchBox({ table }: { table: MRT_TableInstance<Row> }) {
         setDraft('');
         table.setGlobalFilter('');
         setOpen(false);
+        // Let go of focus: the input is still in the DOM once collapsed, and holding it
+        // would keep swallowing keys meant for the page.
+        inputRef.current?.blur();
     };
 
     return (

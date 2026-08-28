@@ -119,6 +119,14 @@ body {
     color: var(--mantine-color-text);
 }
 
+/*
+ * Fullscreen is the grid on its own: MRT's fixed paper already covers the app header
+ * and sidebar, so only the paging row is left to drop.
+ */
+.mrt-table-paper-fullscreen .mrt-bottom-toolbar {
+    display: none;
+}
+
 /* ---- Loading skeleton --------------------------------------------------- */
 
 .table-skeleton {
