@@ -10,9 +10,11 @@ import { Sidebar } from './components/Sidebar';
 import { ViewTabs } from './components/ViewTabs';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ExportRowsDialog, type ExportRowsOptions } from './components/ExportRowsDialog';
-import { parseBuffer } from './lib/readFile';
-import { exportCsv } from './lib/exportCsv';
+import { loadDataset } from './lib/readFile';
 import { listFiles, getActiveId, getBuffer, addFile, clearFiles, renameFile as renameStored, setActiveId as persistActive, removeFile as removeStored, duplicateFile as duplicateStored, getViews, setViews, type FileMeta } from './lib/store';
+import { dropTable, exportQueryCsv } from './lib/duckdb';
+import { exportSql } from './lib/sql';
+import { downloadCsv } from './lib/exportCsv';
 import { createViewState, DEFAULT_VIEW_NAME, hasFilters, type View, type ViewState } from './lib/views';
 import type { Dataset } from './lib/types';
 
@@ -200,10 +202,10 @@ export function App() {
         setDataset(null);
         const buffer = await getBuffer(meta.id);
         if (buffer) {
-            const parsed = await parseBuffer(meta.name, buffer);
+            const loaded = await loadDataset(meta.id, meta.name, buffer);
             await restoring.current;
-            setDataset(parsed);
-            ensureView(meta.id, parsed.columns);
+            setDataset(loaded);
+            ensureView(meta.id, loaded.columns);
         }
     };
 
@@ -250,9 +252,11 @@ export function App() {
         await nextFrame();
         try {
             const buffer = await file.arrayBuffer();
-            const parsed = await parseBuffer(file.name, buffer);
-            const meta = await addFile(file.name, buffer);
-            const next = { ...parsed, name: meta.name };
+            // Load before adding, so a file DuckDB cannot read never enters the list.
+            const id = crypto.randomUUID();
+            const loaded = await loadDataset(id, file.name, buffer);
+            const meta = await addFile(file.name, buffer, id);
+            const next = { ...loaded, name: meta.name };
             setFiles(await listFiles());
             await restoring.current;
             setActiveId(meta.id);
@@ -263,7 +267,7 @@ export function App() {
                 color: 'teal',
                 icon: <Check size={18} />,
                 title: 'File loaded',
-                message: `${next.name} · ${next.rows.length.toLocaleString()} rows × ${next.columns.length} columns`,
+                message: `${next.name} · ${next.rowCount.toLocaleString()} rows × ${next.columns.length} columns`,
                 autoClose: 5000,
             });
         } catch (e) {
@@ -299,6 +303,7 @@ export function App() {
 
     const removeFile = async (file: FileMeta) => {
         const remaining = await removeStored(file.id);
+        await dropTable(file.id);
         setFiles(remaining);
         setModel((m) => {
             const views = m.views.filter((v) => v.fileId !== file.id);
@@ -360,10 +365,10 @@ export function App() {
             if (!buffer) {
                 return;
             }
-            ds = await parseBuffer(meta.name, buffer);
+            ds = await loadDataset(meta.id, meta.name, buffer);
         }
-        const rows = opts.limit ? ds.rows.slice(0, opts.limit) : ds.rows;
-        exportCsv(ds.name, ds.columns.map((c) => ({ key: c, label: c })), rows, opts.header);
+        const sql = exportSql({ table: ds.table, columns: ds.columns, filters: [], search: '', sorting: [] }, ds.columns, opts.limit);
+        downloadCsv(ds.name, await exportQueryCsv(sql, opts.header));
     };
 
     return (

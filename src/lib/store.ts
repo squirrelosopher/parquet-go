@@ -33,9 +33,9 @@ function uniqueName(name: string, taken: Set<string>): string {
     return `${base} (${n})${ext}`;
 }
 
-export async function addFile(name: string, buffer: ArrayBuffer): Promise<FileMeta> {
+export async function addFile(name: string, buffer: ArrayBuffer, id = crypto.randomUUID()): Promise<FileMeta> {
     const index = await listFiles();
-    const meta: FileMeta = { id: crypto.randomUUID(), name: uniqueName(name, new Set(index.map((f) => f.name))) };
+    const meta: FileMeta = { id, name: uniqueName(name, new Set(index.map((f) => f.name))) };
     await set(bufKey(meta.id), buffer);
     await set(INDEX, [...index, meta]);
     await set(ACTIVE, meta.id);
