@@ -119,23 +119,41 @@ body {
     color: var(--mantine-color-text);
 }
 
-.cubes {
+/* ---- Loading skeleton --------------------------------------------------- */
+
+.table-skeleton {
     display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.table-skeleton-head,
+.table-skeleton-row {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
     align-items: center;
-    justify-content: center;
-    gap: 9px;
-    height: 84px;
+    gap: 28px;
+    padding: 0 16px;
 }
-.cube {
-    color: var(--mantine-color-indigo-5);
-    animation: cube-pop 1.2s ease-in-out infinite;
+.table-skeleton-head {
+    height: 34px;
+    border-bottom: 1px solid var(--mantine-color-default-border);
 }
-@keyframes cube-pop {
-    0%, 100% { opacity: 0.25; transform: translateY(6px) scale(0.8); }
-    50% { opacity: 1; transform: translateY(-6px) scale(1); }
+.table-skeleton-row {
+    height: 26px;
 }
+.table-skeleton-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding-top: 4px;
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .cube { animation: none; opacity: 0.7; }
+    .table-skeleton .mantine-Skeleton-root::after {
+        animation: none;
+    }
 }
 
 /* ---- View tabs -------------------------------------------------------- */

@@ -20,6 +20,7 @@ const CELL_CHROME = 46;
 const MIN_FLOOR = 64;
 const MIN_CAP = 240;
 const SAMPLE_ROWS = 200;
+const SLOW_QUERY_MS = 250;
 const COLUMN_NAME_MAX = 100;
 
 const longestWord = (text: string): number =>
@@ -59,7 +60,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
     const [rows, setRows] = useState<Row[]>([]);
     const [sample, setSample] = useState<Row[]>([]);
     const [total, setTotal] = useState(dataset.rowCount);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [revision, setRevision] = useState(0);
 
     useEffect(() => {
@@ -81,7 +82,9 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
     // One page of rows — the only rows that ever become JS objects.
     useEffect(() => {
         let cancelled = false;
-        setLoading(true);
+        // Most queries land in tens of milliseconds. Announcing those would flash a bar
+        // on every keystroke for work that is already done, so only slow ones show one.
+        const announce = window.setTimeout(() => setLoading(true), SLOW_QUERY_MS);
         (async () => {
             try {
                 const page = await query(pageSql(spec, pageSize, pageIndex * pageSize));
@@ -94,12 +97,13 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                     failed('run that query', error);
                 }
             } finally {
+                window.clearTimeout(announce);
                 if (!cancelled) {
                     setLoading(false);
                 }
             }
         })();
-        return () => { cancelled = true; };
+        return () => { cancelled = true; window.clearTimeout(announce); };
     }, [specKey, pageIndex, pageSize, revision]);
 
     // The count only moves when the predicate does, so paging does not re-scan.
@@ -224,7 +228,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             columnSizing: viewState.columnSizing,
             columnOrder: viewState.columnOrder,
             showColumnFilters: showFilters,
-            showProgressBars: loading,
+            isLoading: loading,
         },
         onSortingChange: patch('sorting'),
         onColumnFiltersChange: patch('columnFilters'),

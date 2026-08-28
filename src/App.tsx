@@ -4,7 +4,7 @@ import { notifications } from '@mantine/notifications';
 import { Check, TriangleAlert } from 'lucide-react';
 import { Header } from './components/Header';
 import { FileDrop } from './components/FileDrop';
-import { CubeLoader } from './components/CubeLoader';
+import { TableSkeleton } from './components/TableSkeleton';
 import { DataTable } from './components/DataTable';
 import { Sidebar } from './components/Sidebar';
 import { ViewTabs } from './components/ViewTabs';
@@ -427,7 +427,7 @@ export function App() {
                             )
                             : dataset && !fileViews.length
                                 ? <NoViews />
-                                : <Center h="100%"><CubeLoader /></Center>)
+                                : <TableSkeleton />)
                         : <HomeRoute onFile={openFile} />}
                 </Box>
             </Box>
