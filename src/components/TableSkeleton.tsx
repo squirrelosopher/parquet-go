@@ -15,13 +15,13 @@ const cells = (count: number, offset: number, height: number) =>
 export function TableSkeleton() {
     return (
         <Box className="table-skeleton">
-            <Group justify="space-between" px="md" h={56} wrap="nowrap" style={{ flex: 'none' }}>
+            <Group justify="space-between" px={8} h={56} wrap="nowrap" style={{ flex: 'none' }}>
                 <Group gap={6} wrap="nowrap">
                     <Skeleton height={22} width={96} radius="sm" />
                     <Skeleton height={22} width={24} radius="sm" />
                 </Group>
                 <Group gap={6} wrap="nowrap">
-                    {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} height={22} circle />)}
+                    {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} height={22} circle />)}
                 </Group>
             </Group>
 
@@ -33,7 +33,7 @@ export function TableSkeleton() {
                 ))}
             </Box>
 
-            <Group justify="space-between" px="md" h={48} wrap="nowrap" style={{ flex: 'none' }}>
+            <Group justify="space-between" px={8} h={48} wrap="nowrap" style={{ flex: 'none' }}>
                 <Skeleton height={12} width={180} radius="sm" />
                 <Skeleton height={12} width={220} radius="sm" />
             </Group>
