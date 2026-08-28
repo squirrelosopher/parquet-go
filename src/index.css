@@ -17,9 +17,46 @@ body {
     display: none;
 }
 
-.mrt-table-head-cell-content:hover .mrt-table-head-cell-labels,
-.mrt-table-head-cell-content:hover .mrt-table-head-sort-button {
-    color: var(--mantine-color-indigo-6);
+/*
+ * Flexbox centres the sort arrow on the header's full line box, which sits above
+ * where the letters actually are: x-height text ("name") reads 2px low against it,
+ * while text with an ascender ("id") reads level. Drop the arrow half that gap so
+ * it looks centred either way. Offset rather than margin — margin would be folded
+ * into the flex centring and only move it half as far.
+ */
+.mrt-table-head-cell-labels .mrt-table-head-sort-button {
+    position: relative;
+    top: 1px;
+}
+
+/*
+ * A filtered column is called out by name, in the same accent the sidebar gives the
+ * selected file's cube — one variable, so the two cannot drift apart in either theme.
+ */
+.column-filtered {
+    color: var(--mantine-color-indigo-light-color);
+}
+
+/*
+ * The filter row sits under a bold header and should not compete with it: the typed
+ * term carries the placeholder's grey and weight, and only the hint is italic.
+ */
+.column-filter input {
+    color: var(--mantine-color-placeholder);
+    font-weight: 400;
+}
+.column-filter input::placeholder {
+    font-weight: 400;
+    font-style: italic;
+}
+
+/* A cell being edited keeps the tint and outline it had under the cursor, for as long
+   as it stays in edit mode. MRT marks the cell with no attribute, but only an editing
+   cell contains an input. Values mirror MRT's own editable-hover rule. */
+.mantine-Table-td:has(.mantine-TextInput-root) {
+    background-color: var(--mrt-row-hover-background-color);
+    outline: 1px solid var(--mantine-color-gray-7);
+    outline-offset: -1px;
 }
 
 .pv-compact .mantine-Table-td,
@@ -43,8 +80,14 @@ body {
     font-weight: 600;
 }
 
-.mrt-bottom-toolbar .mantine-Text-root {
+/* Scoped to the paginator so it leaves the dataset summary beside it alone. */
+.mrt-table-pagination .mantine-Text-root {
     font-size: var(--mantine-font-size-sm);
+}
+
+.dataset-summary {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .file-item {
@@ -59,6 +102,21 @@ body {
 .file-item[data-active='true'] {
     background-color: var(--mantine-color-indigo-light);
     color: var(--mantine-color-indigo-light-color);
+}
+/* The name itself always reads in the theme's text colour — black on light, white on
+   dark — leaving the accent to the row's fill and its icon. */
+.file-item-name {
+    color: var(--mantine-color-text);
+}
+
+/*
+ * At rest the drop zone's icon is not signalling anything, so it reads in the theme's
+ * text colour — black on light, white on dark. The drag states keep their accent.
+ */
+/* Mantine sets --ti-color inline from the `color` prop, so colour the glyph itself
+   rather than trying to outrank it. */
+.filedrop-idle svg {
+    color: var(--mantine-color-text);
 }
 
 .cubes {
@@ -78,4 +136,168 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
     .cube { animation: none; opacity: 0.7; }
+}
+
+/* ---- View tabs -------------------------------------------------------- */
+
+/*
+ * MRT's toolbar row and its grid item both size to their content, so without this
+ * a long tab strip widens the whole table instead of shrinking. Letting them shrink
+ * puts the pressure back on the tabs, where flex can absorb it.
+ */
+.pv-top-toolbar,
+.pv-top-toolbar > div {
+    min-width: 0;
+}
+
+.view-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.view-tabs-strip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.view-tabs-strip::-webkit-scrollbar {
+    display: none;
+}
+
+/*
+ * Chrome-style sizing: tabs take the width their name needs, then give it up
+ * evenly as more open, down to a floor. Past that the strip scrolls instead of
+ * squeezing them into nothing.
+ */
+.view-tab {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 1 auto;
+    /* Wide enough that the default "New view" never ellipsises, even bold and
+       crowded — measured at 92px, with a little slack for font rendering. */
+    min-width: 96px;
+    /* A renamed view never grows past a default-looking tab; the label ellipsises
+       instead and the tooltip carries the full name. */
+    max-width: 120px;
+    padding: 4px 6px 4px 10px;
+    border: 0;
+    border-radius: var(--mantine-radius-sm);
+    background-color: transparent;
+    color: var(--mantine-color-dimmed);
+    font: inherit;
+    font-size: var(--mantine-font-size-xs);
+    cursor: pointer;
+    transition: background-color 0.1s ease, color 0.1s ease;
+}
+.view-tab:hover {
+    background-color: var(--mantine-color-default-hover);
+}
+/* The active tab reads through fill, weight and text contrast rather than hue. */
+.view-tab[data-active='true'] {
+    background-color: var(--mantine-color-gray-light);
+    color: var(--mantine-color-text);
+    font-weight: 600;
+}
+
+.view-tab-input {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+}
+
+.view-tab-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Pinned to the width it was rendered at, so renaming never resizes the strip. */
+.view-tab[data-editing='true'] {
+    flex: none;
+}
+
+.view-tab-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--mantine-radius-xs);
+    opacity: 0.55;
+    transition: opacity 0.1s ease, background-color 0.1s ease;
+}
+.view-tab-close:hover {
+    opacity: 1;
+    background-color: var(--mantine-color-default-hover);
+}
+
+/* ---- Search box ------------------------------------------------------- */
+
+/*
+ * The pill grows out of the toggle and shrinks back into it: the open bar wears
+ * the same fill the subtle icon shows on hover, so the two read as one control.
+ */
+.search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: none;
+    height: 34px;
+    border-radius: var(--mantine-radius-md);
+    background-color: transparent;
+    transition: width 0.2s ease, background-color 0.2s ease;
+}
+.search-box[data-open='true'] {
+    background-color: var(--mantine-color-gray-light);
+}
+
+.search-box-input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    /* Padding does not flex-shrink, so it has to collapse with the bar —
+       otherwise the closed pill stays wider than its toggle and crowds the
+       button beside it. */
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--mantine-color-text);
+    font: inherit;
+    font-size: var(--mantine-font-size-sm);
+    /* Fades out well before the bar finishes collapsing, so the text never
+       crawls out from under the toggle. */
+    opacity: 0;
+    transition: opacity 0.09s ease, padding 0.2s ease;
+}
+.search-box[data-open='true'] .search-box-input {
+    padding-left: 14px;
+    opacity: 1;
+    transition: opacity 0.16s ease 0.06s, padding 0.2s ease;
+}
+.search-box-input::placeholder {
+    color: var(--mantine-color-placeholder);
+}
+
+.search-box-toggle {
+    flex: none;
+}
+/* Once the bar is open the toggle sits on its fill; a second hover layer on top
+   of it just looks like a smudge. */
+.search-box[data-open='true'] .search-box-toggle:hover {
+    background-color: transparent;
 }

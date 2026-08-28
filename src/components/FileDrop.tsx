@@ -21,7 +21,7 @@ export function FileDrop({ onFile, compact = false }: { onFile: (file: File) => 
             <Group justify="center" gap={compact ? 'sm' : 'lg'} style={{ minHeight: compact ? 72 : 160, pointerEvents: 'none' }}>
                 <Dropzone.Accept><Icon icon={UploadCloud} compact={compact} /></Dropzone.Accept>
                 <Dropzone.Reject><Icon icon={X} color="red" compact={compact} /></Dropzone.Reject>
-                <Dropzone.Idle><Icon icon={FileBox} compact={compact} /></Dropzone.Idle>
+                <Dropzone.Idle><Icon icon={FileBox} color="gray" className="filedrop-idle" compact={compact} /></Dropzone.Idle>
                 <Stack gap={2}>
                     <Text fw={600} fz={compact ? 'sm' : 'lg'}>Drop a {compact ? 'file' : 'Parquet or CSV file'}</Text>
                     <Text c="dimmed" fz="xs">or click to choose one</Text>
@@ -31,9 +31,9 @@ export function FileDrop({ onFile, compact = false }: { onFile: (file: File) => 
     );
 }
 
-function Icon({ icon: I, color = 'indigo', compact }: { icon: typeof UploadCloud; color?: string; compact: boolean }) {
+function Icon({ icon: I, color = 'indigo', className, compact }: { icon: typeof UploadCloud; color?: string; className?: string; compact: boolean }) {
     return (
-        <ThemeIcon variant="light" color={color} size={compact ? 40 : 64} radius="md">
+        <ThemeIcon variant="light" color={color} className={className} size={compact ? 40 : 64} radius="md">
             <I size={compact ? 20 : 30} />
         </ThemeIcon>
     );

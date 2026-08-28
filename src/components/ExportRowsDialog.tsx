@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Modal, NumberInput, Switch, Group, Button, Stack } from '@mantine/core';
 
 export interface ExportRowsOptions {
-    limit: number;
+    /** Undefined exports everything the view currently shows. */
+    limit?: number;
     header: boolean;
 }
 
@@ -12,31 +13,46 @@ interface ExportRowsDialogProps {
     onSubmit: (options: ExportRowsOptions) => void;
 }
 
-const DEFAULT_LIMIT = 100;
+const DEFAULT_LIMIT = 1000;
 
 export function ExportRowsDialog({ opened, onClose, onSubmit }: ExportRowsDialogProps) {
+    const [limited, setLimited] = useState(false);
     const [limit, setLimit] = useState(DEFAULT_LIMIT);
     const [header, setHeader] = useState(true);
 
     useEffect(() => {
         if (opened) {
+            setLimited(false);
             setLimit(DEFAULT_LIMIT);
             setHeader(true);
         }
     }, [opened]);
 
     const submit = () => {
-        onSubmit({ limit: Math.max(1, limit), header });
+        onSubmit({ limit: limited ? Math.max(1, limit) : undefined, header });
         onClose();
     };
 
     return (
-        <Modal opened={opened} onClose={onClose} title="Export rows" centered radius="md">
+        <Modal opened={opened} onClose={onClose} title="Export view" centered radius="md">
             <Stack gap="md">
+                {/* One choice worn as two switches: turning either on turns the other off,
+                    so both stay live rather than one going dead under the cursor. */}
+                <Switch
+                    label="Export all rows"
+                    checked={!limited}
+                    onChange={(e) => setLimited(!e.currentTarget.checked)}
+                />
+                <Switch
+                    label="Export a set number of rows"
+                    checked={limited}
+                    onChange={(e) => setLimited(e.currentTarget.checked)}
+                />
                 <NumberInput
                     label="Number of rows"
                     min={1}
                     allowDecimal={false}
+                    disabled={!limited}
                     value={limit}
                     onChange={(v) => setLimit(typeof v === 'number' ? v : 1)}
                 />

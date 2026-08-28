@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Stack, Text, Group, ScrollArea, Divider, Menu } from '@mantine/core';
-import { Box as CubeIcon, Pencil, Download, FileDown, Trash2 } from 'lucide-react';
+import { Box as CubeIcon, Pencil, Copy, FileDown, Trash2 } from 'lucide-react';
 import { FileDrop } from './FileDrop';
 import { RenameDialog } from './RenameDialog';
-import { ExportRowsDialog, type ExportRowsOptions } from './ExportRowsDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import type { FileMeta } from '../lib/store';
 
@@ -19,6 +18,7 @@ interface SidebarProps {
     onAdd: (file: File) => void;
     onRemove: (file: FileMeta) => void;
     onRename: (file: FileMeta, name: string) => void;
+    onDuplicate: (file: FileMeta) => void;
     onExport: (file: FileMeta, request: ExportRequest) => void;
 }
 
@@ -28,10 +28,9 @@ interface MenuState {
     y: number;
 }
 
-export function Sidebar({ files, activeId, onSwitch, onAdd, onRemove, onRename, onExport }: SidebarProps) {
+export function Sidebar({ files, activeId, onSwitch, onAdd, onRemove, onRename, onDuplicate, onExport }: SidebarProps) {
     const [menu, setMenu] = useState<MenuState | null>(null);
     const [renameTarget, setRenameTarget] = useState<FileMeta | null>(null);
-    const [exportTarget, setExportTarget] = useState<FileMeta | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<FileMeta | null>(null);
 
     return (
@@ -50,7 +49,7 @@ export function Sidebar({ files, activeId, onSwitch, onAdd, onRemove, onRename, 
                             onContextMenu={(e) => { e.preventDefault(); setMenu({ file, x: e.clientX, y: e.clientY }); }}
                         >
                             <CubeIcon size={16} style={{ flex: 'none' }} />
-                            <Text fz="sm" truncate style={{ flex: 1, minWidth: 0 }}>{file.name}</Text>
+                            <Text className="file-item-name" fz="sm" truncate style={{ flex: 1, minWidth: 0 }}>{file.name}</Text>
                         </Group>
                     ))}
                 </Stack>
@@ -67,8 +66,8 @@ export function Sidebar({ files, activeId, onSwitch, onAdd, onRemove, onRename, 
                         <Menu.Item leftSection={<Pencil size={14} />} onClick={() => { setRenameTarget(menu.file); setMenu(null); }}>
                             Rename
                         </Menu.Item>
-                        <Menu.Item leftSection={<Download size={14} />} onClick={() => { setExportTarget(menu.file); setMenu(null); }}>
-                            Export rows…
+                        <Menu.Item leftSection={<Copy size={14} />} onClick={() => { onDuplicate(menu.file); setMenu(null); }}>
+                            Duplicate
                         </Menu.Item>
                         <Menu.Item leftSection={<FileDown size={14} />} onClick={() => { onExport(menu.file, { header: true }); setMenu(null); }}>
                             Export as CSV
@@ -86,11 +85,6 @@ export function Sidebar({ files, activeId, onSwitch, onAdd, onRemove, onRename, 
                 initialName={renameTarget?.name ?? ''}
                 onClose={() => setRenameTarget(null)}
                 onSubmit={(name) => renameTarget && onRename(renameTarget, name)}
-            />
-            <ExportRowsDialog
-                opened={exportTarget !== null}
-                onClose={() => setExportTarget(null)}
-                onSubmit={(options: ExportRowsOptions) => exportTarget && onExport(exportTarget, options)}
             />
             <ConfirmDialog
                 opened={deleteTarget !== null}

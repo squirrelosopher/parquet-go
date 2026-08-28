@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActionIcon, TextInput } from '@mantine/core';
 import { X } from 'lucide-react';
 import type { MRT_Column } from 'mantine-react-table';
@@ -10,7 +10,12 @@ interface ColumnFilterProps {
 }
 
 export function ColumnFilter({ column, placeholder }: ColumnFilterProps) {
-    const [draft, setDraft] = useState((column.getFilterValue() as string) ?? '');
+    const applied = (column.getFilterValue() as string | undefined) ?? '';
+    const [draft, setDraft] = useState(applied);
+
+    // Each view carries its own filters, so switching tabs changes what is applied
+    // underneath this input. Follow it, or the box shows a filter the view lacks.
+    useEffect(() => setDraft(applied), [applied]);
 
     const clear = () => {
         setDraft('');
@@ -19,6 +24,7 @@ export function ColumnFilter({ column, placeholder }: ColumnFilterProps) {
 
     return (
         <TextInput
+            className="column-filter"
             variant="unstyled"
             size="xs"
             placeholder={placeholder}

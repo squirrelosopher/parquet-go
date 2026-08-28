@@ -4,13 +4,14 @@ import { TextInput, Text } from '@mantine/core';
 interface EditableHeaderProps {
     label: string;
     maxLength: number;
+    filtered?: boolean;
     onRename: (name: string) => void;
     onSort: () => void;
 }
 
 const CLICK_DELAY = 200;
 
-export function EditableHeader({ label, maxLength, onRename, onSort }: EditableHeaderProps) {
+export function EditableHeader({ label, maxLength, filtered, onRename, onSort }: EditableHeaderProps) {
     const [editing, setEditing] = useState(false);
     const [value, setValue] = useState(label);
     const timer = useRef<number>();
@@ -51,6 +52,7 @@ export function EditableHeader({ label, maxLength, onRename, onSort }: EditableH
         <Text
             component="span"
             fw={600}
+            className={filtered ? 'column-filtered' : undefined}
             onClick={(e) => {
                 e.stopPropagation();
                 if (e.detail === 1) {
