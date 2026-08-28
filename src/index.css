@@ -1,0 +1,66 @@
+html,
+body,
+#root {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+}
+
+.mantine-Table-td {
+    font-variant-numeric: tabular-nums;
+}
+
+.mrt-table-head-sort-button:not([data-sorted]) {
+    display: none;
+}
+
+.mantine-Menu-dropdown svg {
+    width: 16px;
+    height: 16px;
+}
+
+.mantine-Select-option[data-checked] {
+    background-color: var(--mantine-color-indigo-light);
+    color: var(--mantine-color-indigo-light-color);
+    font-weight: 600;
+}
+
+.mrt-bottom-toolbar .mantine-Text-root {
+    font-size: var(--mantine-font-size-sm);
+}
+
+.file-item {
+    border-radius: var(--mantine-radius-sm);
+    padding: 6px 8px;
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+}
+.file-item:hover {
+    background-color: var(--mantine-color-default-hover);
+}
+.file-item[data-active='true'] {
+    background-color: var(--mantine-color-indigo-light);
+    color: var(--mantine-color-indigo-light-color);
+}
+
+.cubes {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    height: 120px;
+}
+.cube {
+    color: var(--mantine-color-indigo-5);
+    animation: cube-pop 1.2s ease-in-out infinite;
+}
+@keyframes cube-pop {
+    0%, 100% { opacity: 0.25; transform: translateY(6px) scale(0.8); }
+    50% { opacity: 1; transform: translateY(-6px) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .cube { animation: none; opacity: 0.7; }
+}
