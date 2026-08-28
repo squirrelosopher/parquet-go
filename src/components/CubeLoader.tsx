@@ -1,6 +1,6 @@
 import { Box as CubeIcon } from 'lucide-react';
 
-const CUBE_SIZES = [22, 34, 46, 34, 22];
+const CUBE_SIZES = [16, 24, 32, 24, 16];
 
 export function CubeLoader() {
     return (
