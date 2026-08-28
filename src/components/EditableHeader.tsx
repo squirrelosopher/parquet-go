@@ -42,7 +42,7 @@ export function EditableHeader({ label, maxLength, onRename, onSort }: EditableH
                         setEditing(false);
                     }
                 }}
-                styles={{ input: { fontWeight: 600, fontSize: 'var(--mantine-font-size-sm)', height: 'auto', minHeight: 0, padding: 0, lineHeight: 'inherit', backgroundColor: 'var(--mantine-color-default-hover)' } }}
+                styles={{ input: { fontWeight: 600, fontSize: 'var(--mantine-font-size-md)', height: 'auto', minHeight: 0, padding: 0, lineHeight: 'inherit', borderRadius: 0 } }}
             />
         );
     }

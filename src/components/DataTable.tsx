@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { MantineReactTable, useMantineReactTable, type MRT_ColumnDef } from 'mantine-react-table';
-import { Text } from '@mantine/core';
-import { ArrowUp, ArrowDown } from 'lucide-react';
+import { MantineReactTable, useMantineReactTable, MRT_ShowHideColumnsButton, MRT_ToggleFiltersButton, type MRT_ColumnDef } from 'mantine-react-table';
+import { Group, Text } from '@mantine/core';
+import { SearchBox } from './SearchBox';
+import { DensityToggle } from './DensityToggle';
+import { ColumnFilter } from './ColumnFilter';
+import { ArrowUp, ArrowDown, Filter, FilterX, Columns3 } from 'lucide-react';
 import type { Dataset, Row } from '../lib/types';
 import { formatCell } from '../lib/format';
 import { exportCsv } from '../lib/exportCsv';
@@ -22,14 +25,12 @@ function columnMinSize(header: string, sample: string[]): number {
     return Math.min(MIN_CAP, Math.max(MIN_FLOOR, chars * CHAR_PX + CELL_CHROME));
 }
 
-const editInputStyles = { input: { padding: 0, height: 'auto', minHeight: 0, lineHeight: 'inherit', fontSize: 'inherit', backgroundColor: 'var(--mantine-color-default-hover)' } };
+const editInputStyles = { input: { padding: 0, height: 'auto', minHeight: 0, lineHeight: 'inherit', fontSize: 'inherit', borderRadius: 0 } };
 
 export function DataTable({ dataset, exportRef }: { dataset: Dataset; exportRef: MutableRefObject<(() => void) | null> }) {
     const keys = dataset.columns;
     const [labels, setLabels] = useState(keys);
-
-    // Cell edits are held in an overlay keyed by the row object, so the data
-    // array is never rebuilt and TanStack does not re-sort on every edit.
+    const [compact, setCompact] = useState(true);
     const edits = useRef(new Map<Row, Record<string, string>>());
 
     useEffect(() => {
@@ -65,6 +66,7 @@ export function DataTable({ dataset, exportRef }: { dataset: Dataset; exportRef:
                     onSort={() => column.toggleSorting()}
                 />
             ),
+            Filter: ({ column }) => <ColumnFilter column={column} placeholder={`Filter by ${labels[index] ?? key}`} />,
             Cell: ({ cell, row }) => formatCell(cellValue(row.original, key, cell.getValue())),
             mantineEditTextInputProps: ({ row }) => ({
                 variant: 'unstyled',
@@ -81,8 +83,6 @@ export function DataTable({ dataset, exportRef }: { dataset: Dataset; exportRef:
         enableColumnResizing: true,
         enableStickyHeader: true,
         enableFacetedValues: false,
-        // Pagination renders one page at a time, so row virtualization is
-        // redundant; it also breaks cell-edit exit in this MRT beta.
         enableRowVirtualization: false,
         enableSortingRemoval: false,
         enableDensityToggle: false,
@@ -90,23 +90,35 @@ export function DataTable({ dataset, exportRef }: { dataset: Dataset; exportRef:
         enableEditing: true,
         editDisplayMode: 'cell',
         sortDescFirst: false,
+        positionGlobalFilter: 'none',
         icons: {
             IconArrowsSort: (props: object) => <ArrowUp {...props} size={14} />,
             IconSortAscending: (props: object) => <ArrowUp {...props} size={14} color="var(--mantine-color-green-6)" />,
             IconSortDescending: (props: object) => <ArrowDown {...props} size={14} color="var(--mantine-color-red-6)" />,
+            IconFilter: (props: object) => <Filter {...props} size={18} />,
+            IconFilterOff: (props: object) => <FilterX {...props} size={18} />,
+            IconColumns: (props: object) => <Columns3 {...props} size={18} />,
         },
         initialState: {
             density: 'xs',
             sorting: keys.length ? [{ id: keys[0], desc: false }] : [],
             pagination: { pageIndex: 0, pageSize: 25 },
         },
-        mantinePaperProps: { withBorder: false, radius: 0, style: { height: '100%', display: 'flex', flexDirection: 'column' } },
+        mantinePaperProps: { withBorder: false, radius: 0, className: compact ? 'pv-compact' : undefined, style: { height: '100%', display: 'flex', flexDirection: 'column' } },
         mantineTableContainerProps: { style: { flex: 1 } },
         mantinePaginationProps: { size: 'sm' },
         renderTopToolbarCustomActions: () => (
             <Text c="dimmed" fz="xs" style={{ whiteSpace: 'nowrap' }}>
                 {dataset.name} · {dataset.rows.length.toLocaleString()} rows × {keys.length} cols
             </Text>
+        ),
+        renderToolbarInternalActions: ({ table }) => (
+            <Group gap={2} wrap="nowrap">
+                <SearchBox table={table} />
+                <MRT_ToggleFiltersButton table={table} />
+                <MRT_ShowHideColumnsButton table={table} />
+                <DensityToggle compact={compact} onToggle={() => setCompact((c) => !c)} />
+            </Group>
         ),
     });
 
