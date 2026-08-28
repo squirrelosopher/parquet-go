@@ -144,6 +144,34 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         return () => { cancelled = true; };
     }, [dataset.table]);
 
+    /**
+     * Native fullscreen is taken on the document rather than the grid: only descendants
+     * of the fullscreen element are drawn, and Mantine portals its tooltips, menus and
+     * dialogs into the body. The grid's own fixed layer still hides the app chrome, so
+     * the table is alone on a screen with no browser around it either.
+     */
+    const toggleFullscreen = useCallback(() => {
+        const next = !fullscreen;
+        setFullscreen(next);
+        if (next) {
+            // If the browser refuses, the fixed layer alone still fills the viewport.
+            void document.documentElement.requestFullscreen?.().catch(() => undefined);
+        } else if (document.fullscreenElement) {
+            void document.exitFullscreen().catch(() => undefined);
+        }
+    }, [fullscreen]);
+
+    // Leaving by Esc, F11 or the browser's own control has to bring the grid back too.
+    useEffect(() => {
+        const onChange = () => {
+            if (!document.fullscreenElement) {
+                setFullscreen(false);
+            }
+        };
+        document.addEventListener('fullscreenchange', onChange);
+        return () => document.removeEventListener('fullscreenchange', onChange);
+    }, []);
+
     useEffect(() => {
         if (!fullscreen) {
             return;
@@ -158,12 +186,12 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
                 return;
             }
-            setFullscreen(false);
+            toggleFullscreen();
         };
         // Capture, because a tooltip on the focused control would otherwise swallow it.
         window.addEventListener('keydown', onKey, true);
         return () => window.removeEventListener('keydown', onKey, true);
-    }, [fullscreen]);
+    }, [fullscreen, toggleFullscreen]);
 
     const renameColumn = useCallback((index: number, name: string) => {
         setLabels((prev) => prev.map((l, i) => (i === index ? name : l)));
@@ -284,7 +312,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                 <MRT_ToggleFiltersButton table={table} />
                 <MRT_ShowHideColumnsButton table={table} />
                 <DensityToggle compact={compact} onToggle={() => setCompact((c) => !c)} />
-                <FullscreenToggle active={fullscreen} onToggle={() => setFullscreen((f) => !f)} />
+                <FullscreenToggle active={fullscreen} onToggle={toggleFullscreen} />
             </Group>
         ),
     });

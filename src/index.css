@@ -126,6 +126,11 @@ body {
 .mrt-table-paper-fullscreen .mrt-bottom-toolbar {
     display: none;
 }
+/* The UA paints a fullscreen element's backdrop black; keep the page's own ground. */
+:root:fullscreen,
+:root:fullscreen body {
+    background-color: var(--mantine-color-body);
+}
 
 /* ---- Loading skeleton --------------------------------------------------- */
 
