@@ -148,6 +148,20 @@ export async function execute(sql: string): Promise<void> {
     await run((conn) => conn.query(sql));
 }
 
+/**
+ * Runs a statement for its effect and reports how many rows it changed. DuckDB answers
+ * an UPDATE, INSERT or DELETE with a single count; a statement that changes no rows —
+ * creating a table, dropping one — answers with nothing to count, and says so as null.
+ */
+export async function executeCounting(sql: string): Promise<number | null> {
+    const rows = await query(sql);
+    const count = rows.length === 1 ? (rows[0] as { Count?: unknown }).Count : undefined;
+    if (typeof count === 'bigint') {
+        return Number(count);
+    }
+    return typeof count === 'number' ? count : null;
+}
+
 /** Runs the query straight into DuckDB's CSV writer and hands back the bytes. */
 export async function exportQueryCsv(sql: string, header: boolean): Promise<Uint8Array> {
     const db = await getDb();

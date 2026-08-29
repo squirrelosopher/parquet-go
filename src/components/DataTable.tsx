@@ -13,7 +13,7 @@ import { ColumnFilter } from './ColumnFilter';
 import { ArrowUp, ArrowDown, Check, Filter, FilterX, Columns3, TriangleAlert } from 'lucide-react';
 import type { Dataset, Row } from '../lib/types';
 import { resolveUpdater, retargetViewState, type ViewState } from '../lib/views';
-import { describeQuery, execute, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
+import { describeQuery, execute, executeCounting, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
 import { cellSql, countSql, exportSql, pageSql, trimStatement, updateCellSql, type QuerySpec } from '../lib/sql';
 import { formatCell } from '../lib/format';
 import { ShortcutId } from '../lib/shortcuts';
@@ -284,14 +284,16 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         }
         if (!RETURNS_ROWS.test(text)) {
             try {
-                await execute(text);
+                const affected = await executeCounting(text);
                 // Whatever it touched, the grid is now looking at something older.
                 setRevision((r) => r + 1);
                 notifications.show({
                     color: 'teal',
                     icon: <Check size={18} />,
                     title: 'Statement ran',
-                    message: 'The view has been re-read.',
+                    message: affected === null
+                        ? 'No rows to change.'
+                        : `${affected.toLocaleString()} ${affected === 1 ? 'row' : 'rows'} affected.`,
                     autoClose: 4000,
                 });
             } catch (error) {
@@ -331,9 +333,9 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                 notifications.show({
                     color: 'yellow',
                     icon: <TriangleAlert size={18} />,
-                    title: 'Stored as it was',
-                    message: 'This column’s type cannot tell the new value from the old one, so the row is unchanged. A larger difference will hold, and the SQL editor can write to the table directly.',
-                    autoClose: 7000,
+                    title: 'Not updated',
+                    message: 'Use the SQL editor to write to the table directly.',
+                    autoClose: 6000,
                 });
             }
             setRevision((r) => r + 1);
