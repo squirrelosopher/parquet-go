@@ -96,14 +96,23 @@ function where(spec: QuerySpec): string {
     return terms.length ? ` WHERE ${terms.join(' AND ')}` : '';
 }
 
+/**
+ * Ties have to break somewhere, and left to itself the engine breaks them differently
+ * each run: rows shuffle whenever the grid refetches, and one row can show up on two
+ * pages while another shows up on none. The row id is unique, so ordering by it last
+ * settles every tie and settles it the same way every time.
+ *
+ * A query brings no row id with it, and nothing else in a result set is guaranteed
+ * unique, so a view reading from one keeps whatever order the engine gives it.
+ */
 function order(spec: QuerySpec): string {
-    if (!spec.sorting.length) {
-        return '';
-    }
     // Qualified, so a column rendered to text in the select list cannot capture the
     // name and turn a numeric ordering into an alphabetical one.
-    const parts = spec.sorting.map((s) => `${ident(SOURCE)}.${ident(s.id)} ${s.desc ? 'DESC' : 'ASC'} NULLS LAST`);
-    return ` ORDER BY ${parts.join(', ')}`;
+    const keys = spec.sorting.map((s) => `${ident(SOURCE)}.${ident(s.id)} ${s.desc ? 'DESC' : 'ASC'} NULLS LAST`);
+    if (!trimStatement(spec.sql)) {
+        keys.push(`${ident(SOURCE)}.${ident(ROW_ID)}`);
+    }
+    return keys.length ? ` ORDER BY ${keys.join(', ')}` : '';
 }
 
 /**
