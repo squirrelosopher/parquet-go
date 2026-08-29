@@ -59,6 +59,24 @@ export function normalizeViewState(stored: unknown): ViewState {
 }
 
 /**
+ * A view narrows the file by naming columns, and changing the query it reads from can
+ * take some of those names away. Whatever still names a column carries over; only what
+ * has nothing left to point at is dropped. The page goes back to the first, because a
+ * different set of rows makes any other meaningless.
+ */
+export function retargetViewState(state: ViewState, columns: string[]): ViewState {
+    const available = new Set(columns);
+    const sorting = state.sorting.filter((s) => available.has(s.id));
+    const fallback = columns.length ? [{ id: columns[0], desc: false }] : [];
+    return {
+        ...state,
+        columnFilters: state.columnFilters.filter((f) => available.has(String(f.id))),
+        sorting: sorting.length ? sorting : fallback,
+        pagination: { ...state.pagination, pageIndex: 0 },
+    };
+}
+
+/**
  * Closing a view only costs the user something once they have narrowed it down.
  * The toolbar search is global, so it is not a view's to lose.
  */

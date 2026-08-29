@@ -12,7 +12,7 @@ const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.Sql
 import { ColumnFilter } from './ColumnFilter';
 import { ArrowUp, ArrowDown, Filter, FilterX, Columns3, TriangleAlert } from 'lucide-react';
 import type { Dataset, Row } from '../lib/types';
-import { resolveUpdater, type ViewState } from '../lib/views';
+import { resolveUpdater, retargetViewState, type ViewState } from '../lib/views';
 import { describeQuery, execute, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
 import { countSql, exportSql, pageSql, trimStatement, updateCellSql, type QuerySpec } from '../lib/sql';
 import { formatCell } from '../lib/format';
@@ -263,39 +263,27 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         [ShortcutId.ToggleFullscreen]: toggleFullscreen,
     });
 
+    /** Back to the file's own table, keeping whatever narrowing still applies to it. */
+    const clearSql = useCallback(() => {
+        setSqlColumns(null);
+        onViewStateChange((previous) => retargetViewState({ ...previous, sql: '' }, dataset.columns));
+    }, [onViewStateChange, dataset.columns]);
+
     const applySql = useCallback(async (draft: string) => {
         const text = trimStatement(draft);
         if (!text) {
-            onViewStateChange((previous) => ({ ...previous, sql: '', columnFilters: [], sorting: [], pagination: { ...previous.pagination, pageIndex: 0 } }));
+            clearSql();
             return;
         }
         try {
             // DESCRIBE both validates the query and names its columns, without running it.
             const found = await describeQuery(text);
             setSqlColumns(found);
-            onViewStateChange((previous) => ({
-                ...previous,
-                sql: text,
-                // The old columns are gone, so anything naming them has to go with them.
-                columnFilters: [],
-                sorting: found.length ? [{ id: found[0], desc: false }] : [],
-                pagination: { ...previous.pagination, pageIndex: 0 },
-            }));
+            onViewStateChange((previous) => retargetViewState({ ...previous, sql: text }, found));
         } catch (error) {
             failed('run that query', error);
         }
-    }, [onViewStateChange]);
-
-    const clearSql = useCallback(() => {
-        setSqlColumns(null);
-        onViewStateChange((previous) => ({
-            ...previous,
-            sql: '',
-            columnFilters: [],
-            sorting: dataset.columns.length ? [{ id: dataset.columns[0], desc: false }] : [],
-            pagination: { ...previous.pagination, pageIndex: 0 },
-        }));
-    }, [onViewStateChange, dataset.columns]);
+    }, [onViewStateChange, clearSql]);
 
     const renameColumn = useCallback((index: number, name: string) => {
         setLabels((prev) => prev.map((l, i) => (i === index ? name : l)));
