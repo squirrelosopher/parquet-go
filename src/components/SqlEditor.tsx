@@ -52,7 +52,7 @@ export function SqlEditor({ value, alias, columns, onRun, onClear }: SqlEditorPr
         <Box className="sql-editor">
             <Box className="sql-editor-code">
                 <Tooltip
-                    label="Numbers are compared at the precision the column stores, so very close values count as equal. Cast the column to DOUBLE to compare exactly."
+                    label="Numbers are compared at the precision the column stores, so very close values count as equal. Cast the column to an appropriate type to compare exactly."
                     withArrow
                     multiline
                     w={250}
