@@ -142,3 +142,8 @@ export function exportSql(spec: QuerySpec, labels: string[], limit?: number): st
 export function updateCellSql(table: string, rowId: number, column: string, value: string): string {
     return `UPDATE ${ident(table)} SET ${ident(column)} = ${literal(value)} WHERE ${ident(ROW_ID)} = ${rowId}`;
 }
+
+/** One cell, rendered the way the grid renders it — to see what a write actually stored. */
+export function cellSql(table: string, rowId: number, column: string): string {
+    return `SELECT ${asText(column)} AS ${ident(column)} FROM ${ident(table)} WHERE ${ident(ROW_ID)} = ${rowId}`;
+}

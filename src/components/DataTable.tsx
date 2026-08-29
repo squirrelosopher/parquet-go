@@ -14,7 +14,7 @@ import { ArrowUp, ArrowDown, Filter, FilterX, Columns3, TriangleAlert } from 'lu
 import type { Dataset, Row } from '../lib/types';
 import { resolveUpdater, retargetViewState, type ViewState } from '../lib/views';
 import { describeQuery, execute, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
-import { countSql, exportSql, pageSql, trimStatement, updateCellSql, type QuerySpec } from '../lib/sql';
+import { cellSql, countSql, exportSql, pageSql, trimStatement, updateCellSql, type QuerySpec } from '../lib/sql';
 import { formatCell } from '../lib/format';
 import { ShortcutId } from '../lib/shortcuts';
 import { useShortcuts } from '../lib/useShortcuts';
@@ -289,14 +289,34 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         setLabels((prev) => prev.map((l, i) => (i === index ? name : l)));
     }, []);
 
-    const updateCell = useCallback(async (rowId: number, column: string, value: string) => {
+    /**
+     * A column stores what its type can hold, which is not always what was typed: four
+     * bytes of float keep about seven digits, so an edit past that lands back on the
+     * value already there and nothing appears to happen. Reading the cell back is the
+     * only way to know, and saying so is better than leaving the edit looking ignored.
+     */
+    const updateCell = useCallback(async (rowId: number, column: string, before: string, value: string) => {
+        if (value === before) {
+            return;
+        }
         try {
             await execute(updateCellSql(dataset.table, rowId, column, value));
+            const [stored] = await query(cellSql(dataset.table, rowId, column));
+            const after = formatCell(stored?.[column]);
+            if (after === before) {
+                notifications.show({
+                    color: 'yellow',
+                    icon: <TriangleAlert size={18} />,
+                    title: 'Stored as it was',
+                    message: `${column} cannot hold ${value} apart from ${before}, so the value is unchanged.`,
+                    autoClose: 6000,
+                });
+            }
             setRevision((r) => r + 1);
         } catch (error) {
             failed('save that cell', error);
         }
-    }, [dataset.table, userSql, ready]);
+    }, [dataset.table]);
 
     /** Route one slice of the grid's state back into the active view. */
     const patch = useCallback(
@@ -326,7 +346,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             variant: 'unstyled',
             styles: editInputStyles,
             onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
-                void updateCell(Number(row.original[ROW_ID]), key, e.currentTarget.value);
+                void updateCell(Number(row.original[ROW_ID]), key, formatCell(row.original[key]), e.currentTarget.value);
             },
         }),
         enableHiding: key !== lockedKey,
