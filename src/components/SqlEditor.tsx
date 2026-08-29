@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror, { keymap, Prec, type Extension } from '@uiw/react-codemirror';
 import { PostgreSQL, sql as sqlLang } from '@codemirror/lang-sql';
 import { ActionIcon, Box, Stack, Tooltip, useComputedColorScheme } from '@mantine/core';
-import { Eraser, Play } from 'lucide-react';
+import { Eraser, Info, Play } from 'lucide-react';
 
 const HEIGHT = 132;
 
@@ -51,6 +51,18 @@ export function SqlEditor({ value, alias, columns, onRun, onClear }: SqlEditorPr
     return (
         <Box className="sql-editor">
             <Box className="sql-editor-code">
+                <Tooltip
+                    label="Numbers are compared at the precision the column stores, so very close values count as equal. Cast the column to DOUBLE to compare exactly."
+                    withArrow
+                    multiline
+                    w={250}
+                    position="left"
+                    events={{ hover: true, focus: true, touch: true }}
+                >
+                    <Box component="span" className="sql-editor-hint" tabIndex={0} role="note" aria-label="How numbers are compared">
+                        <Info size={15} />
+                    </Box>
+                </Tooltip>
                 <CodeMirror
                     value={draft}
                     height={`${HEIGHT}px`}

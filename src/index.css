@@ -201,11 +201,28 @@ body {
 
 /* Fixed height: the box never grows with the query, it scrolls. */
 .sql-editor-code {
+    position: relative;
     flex: 1;
     min-width: 0;
     overflow: hidden;
     border: 1px solid var(--mantine-color-default-border);
     border-radius: var(--mantine-radius-md);
+}
+
+/* A bare mark in the corner: no surface of its own, just the glyph and what it
+   has to say when the cursor finds it. */
+.sql-editor-hint {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    z-index: 2;
+    display: inline-flex;
+    color: var(--mantine-color-dimmed);
+    cursor: pointer;
+}
+.sql-editor-hint:hover,
+.sql-editor-hint:focus-visible {
+    color: var(--mantine-color-text);
 }
 .sql-editor-code .cm-editor {
     background-color: transparent;
