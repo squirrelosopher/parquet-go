@@ -8,16 +8,13 @@ const BACKSLASH = String.fromCharCode(92);
 const WILDCARD = new RegExp(`[${BACKSLASH}${BACKSLASH}%_]`);
 
 /**
- * A value as the grid shows it. Single precision widens on the way to the screen —
- * DuckDB renders FLOAT 9.083333 as `9.083333`, while the cell reads those same bits
- * as the double 9.083333015441895 — so searching for what is on screen only matches
- * if the widening happens here too. The type is fixed per column, which lets the
- * planner settle the branch once rather than per row.
+ * The one rendering of a value, used both to draw it and to match it. Going through
+ * the engine is what keeps those two in step: a value formatted in JavaScript would
+ * have to agree with this expression, and for a single-precision column it does not —
+ * DuckDB renders FLOAT 9.083333 as `9.083333`, while the same bits read in JavaScript
+ * come out as the double 9.083333015441895.
  */
-const asDisplayed = (column: string) => {
-    const id = ident(column);
-    return `CASE WHEN typeof(${id}) = 'FLOAT' THEN CAST(CAST(${id} AS DOUBLE) AS VARCHAR) ELSE CAST(${id} AS VARCHAR) END`;
-};
+const asText = (column: string) => `CAST(${ident(column)} AS VARCHAR)`;
 
 /**
  * Match against the displayed text, so a substring works on numbers and dates too.
@@ -27,7 +24,7 @@ const asDisplayed = (column: string) => {
  * so it is only attached when the text actually contains something to escape.
  */
 const contains = (column: string, value: string) => {
-    const cast = asDisplayed(column);
+    const cast = asText(column);
     if (!WILDCARD.test(value)) {
         return `${cast} ILIKE ${literal(`%${value}%`)}`;
     }
@@ -49,10 +46,16 @@ export interface QuerySpec {
 /** A trailing semicolon is fine on its own but not once the query is a subquery. */
 export const trimStatement = (sql: string | undefined) => (sql ?? '').trim().replace(/;+\s*$/, '');
 
-/** Filters, sorting and paging wrap the user's query rather than replacing it. */
+/**
+ * Filters, sorting and paging wrap the user's query rather than replacing it. The
+ * alias gives ordering something to point at that is never an output column, so a
+ * rendered column cannot be mistaken for the value it was rendered from.
+ */
+const SOURCE = 'src';
+
 function source(spec: QuerySpec): string {
     const sql = trimStatement(spec.sql);
-    return sql ? `(${sql}) AS q` : ident(spec.table);
+    return `${sql ? `(${sql})` : ident(spec.table)} AS ${ident(SOURCE)}`;
 }
 
 function where(spec: QuerySpec): string {
@@ -74,15 +77,23 @@ function order(spec: QuerySpec): string {
     if (!spec.sorting.length) {
         return '';
     }
-    const parts = spec.sorting.map((s) => `${ident(s.id)} ${s.desc ? 'DESC' : 'ASC'} NULLS LAST`);
+    // Qualified, so a column rendered to text in the select list cannot capture the
+    // name and turn a numeric ordering into an alphabetical one.
+    const parts = spec.sorting.map((s) => `${ident(SOURCE)}.${ident(s.id)} ${s.desc ? 'DESC' : 'ASC'} NULLS LAST`);
     return ` ORDER BY ${parts.join(', ')}`;
 }
 
+/**
+ * The grid draws text, so the engine renders it: what a cell shows is then the very
+ * expression the filter matches against, for every type there is. Only the page on
+ * screen is rendered, and only once filtering, ordering and paging have run against
+ * the real types.
+ */
 export function pageSql(spec: QuerySpec, limit: number, offset: number): string {
+    const shown = spec.columns.map((c) => `${asText(c)} AS ${ident(c)}`);
     // A user query carries no row id, so rows from one are not editable.
-    const selected = trimStatement(spec.sql) ? spec.columns : [ROW_ID, ...spec.columns];
-    const columns = selected.map(ident).join(', ');
-    return `SELECT ${columns} FROM ${source(spec)}${where(spec)}${order(spec)} LIMIT ${limit} OFFSET ${offset}`;
+    const selected = trimStatement(spec.sql) ? shown : [ident(ROW_ID), ...shown];
+    return `SELECT ${selected.join(', ')} FROM ${source(spec)}${where(spec)}${order(spec)} LIMIT ${limit} OFFSET ${offset}`;
 }
 
 export function countSql(spec: QuerySpec): string {
