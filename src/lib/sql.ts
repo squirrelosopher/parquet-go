@@ -8,14 +8,26 @@ const BACKSLASH = String.fromCharCode(92);
 const WILDCARD = new RegExp(`[${BACKSLASH}${BACKSLASH}%_]`);
 
 /**
- * Cast first: a substring match should work on numbers and dates too.
+ * A value as the grid shows it. Single precision widens on the way to the screen —
+ * DuckDB renders FLOAT 9.083333 as `9.083333`, while the cell reads those same bits
+ * as the double 9.083333015441895 — so searching for what is on screen only matches
+ * if the widening happens here too. The type is fixed per column, which lets the
+ * planner settle the branch once rather than per row.
+ */
+const asDisplayed = (column: string) => {
+    const id = ident(column);
+    return `CASE WHEN typeof(${id}) = 'FLOAT' THEN CAST(CAST(${id} AS DOUBLE) AS VARCHAR) ELSE CAST(${id} AS VARCHAR) END`;
+};
+
+/**
+ * Match against the displayed text, so a substring works on numbers and dates too.
  *
  * The UI's filters are plain substrings, so % and _ must lose their wildcard meaning.
  * An ESCAPE clause drops DuckDB off its fast LIKE path — roughly 4x on a full scan —
  * so it is only attached when the text actually contains something to escape.
  */
 const contains = (column: string, value: string) => {
-    const cast = `CAST(${ident(column)} AS VARCHAR)`;
+    const cast = asDisplayed(column);
     if (!WILDCARD.test(value)) {
         return `${cast} ILIKE ${literal(`%${value}%`)}`;
     }

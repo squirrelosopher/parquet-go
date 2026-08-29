@@ -483,3 +483,12 @@ body {
         height: 100vh;
     }
 }
+
+/* The "no results" notice is not a row of data: it does not answer to the cursor the
+   way a record does, and it sits at the grid's own text size rather than above it. */
+.mantine-Table-tbody[data-empty] tr:hover > td {
+    background-color: transparent;
+}
+.mantine-Table-tbody[data-empty] .mantine-Text-root {
+    font-size: var(--mantine-font-size-sm);
+}

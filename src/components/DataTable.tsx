@@ -373,6 +373,11 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             IconFilterOff: (props: object) => <FilterX {...props} size={18} />,
             IconColumns: (props: object) => <Columns3 {...props} size={18} />,
         },
+        // With nothing to show, MRT fills the body with its own "no results" row. That
+        // row is a notice rather than a record, so mark the empty body and let the
+        // stylesheet treat what is inside it as one. MRT builds the row itself, outside
+        // the per-row props, which is why the mark goes here.
+        mantineTableBodyProps: rows.length ? undefined : { mod: { empty: true } },
         initialState: { density: 'xs' },
         // Sorting, filters and column layout live on the view, so each tab keeps its own.
         state: {
