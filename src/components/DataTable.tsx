@@ -453,7 +453,9 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                             <SqlEditor
                                 value={viewState.sql}
                                 alias={dataset.table}
-                                columns={dataset.columns}
+                                // The row id is unique and whole, so it is the one handle that
+                                // addresses a single row without a value having to round.
+                                columns={[ROW_ID, ...dataset.columns]}
                                 onRun={(draft) => void applySql(draft)}
                                 onClear={clearSql}
                             />
