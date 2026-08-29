@@ -1,37 +1,57 @@
+import { useRef } from 'react';
 import { Group, Text, ActionIcon, FileButton, Tooltip, useMantineColorScheme, useComputedColorScheme } from '@mantine/core';
-import { FileBox, Coffee, Sun, Moon, PanelLeft, Download } from 'lucide-react';
+import { FileBox, Coffee, Sun, Moon, PanelLeft, Download, Keyboard, BrushCleaning } from 'lucide-react';
+import { PARQUET_FILE_PICKER_ACCEPT } from '../lib/fileTypes';
+import { ShortcutId } from '../lib/shortcuts';
+import { useShortcuts } from '../lib/useShortcuts';
 
 const GITHUB_URL = 'https://github.com/squirrelosopher';
 const COFFEE_URL = 'https://buymeacoffee.com/squirrelosopher';
-const OPEN_ACCEPT = '.parquet,.pq,.csv,.tsv,.txt';
 
 interface HeaderProps {
     onToggleSidebar?: () => void;
     onOpen?: (file: File) => void;
     onExport?: () => void;
+    onReset?: () => void;
+    onShowShortcuts: () => void;
 }
 
-export function Header({ onToggleSidebar, onOpen, onExport }: HeaderProps) {
+export function Header({ onToggleSidebar, onOpen, onExport, onReset, onShowShortcuts }: HeaderProps) {
     const { setColorScheme } = useMantineColorScheme();
+    const pickFile = useRef<(() => void) | null>(null);
+
+    const showsToolbar = !!onToggleSidebar;
+
+    useShortcuts({
+        ...(showsToolbar ? { [ShortcutId.OpenFile]: () => pickFile.current?.() } : {}),
+        [ShortcutId.ShowShortcuts]: onShowShortcuts,
+    });
+
     const scheme = useComputedColorScheme('light', { getInitialValueInEffect: true });
     const ThemeIcon = scheme === 'dark' ? Sun : Moon;
 
     return (
         <Group justify="space-between" align="center" px="md" h={56} style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
-            {onToggleSidebar ? (
+            {showsToolbar ? (
                 <Group gap="xs">
                     <Tooltip label="Toggle files sidebar" withArrow>
                         <ActionIcon variant="default" size="lg" aria-label="Toggle files sidebar" onClick={onToggleSidebar}>
                             <PanelLeft size={18} />
                         </ActionIcon>
                     </Tooltip>
-                    <FileButton onChange={(file) => file && onOpen?.(file)} accept={OPEN_ACCEPT}>
-                        {(props) => (
-                            <Tooltip label="Open a Parquet or CSV file" withArrow>
-                                <ActionIcon {...props} variant="default" size="lg" aria-label="Open a file"><FileBox size={18} /></ActionIcon>
-                            </Tooltip>
-                        )}
+                    <FileButton onChange={(file) => file && onOpen?.(file)} accept={PARQUET_FILE_PICKER_ACCEPT}>
+                        {(props) => {
+                            pickFile.current = props.onClick;
+                            return (
+                                <Tooltip label="Open a Parquet file" withArrow>
+                                    <ActionIcon {...props} variant="default" size="lg" aria-label="Open a file"><FileBox size={18} /></ActionIcon>
+                                </Tooltip>
+                            );
+                        }}
                     </FileButton>
+                    <Tooltip label="Reset the editor" withArrow>
+                        <ActionIcon variant="default" size="lg" aria-label="Reset the editor" onClick={onReset} disabled={!onReset}><BrushCleaning size={18} /></ActionIcon>
+                    </Tooltip>
                     <Tooltip label="Export current view to CSV" withArrow>
                         <ActionIcon variant="default" size="lg" aria-label="Export CSV" onClick={onExport} disabled={!onExport}><Download size={18} /></ActionIcon>
                     </Tooltip>
@@ -51,6 +71,11 @@ export function Header({ onToggleSidebar, onOpen, onExport }: HeaderProps) {
                 <Tooltip label="Buy me a coffee" withArrow>
                     <ActionIcon component="a" href={COFFEE_URL} target="_blank" rel="noopener noreferrer" variant="default" size="lg" aria-label="Buy me a coffee">
                         <Coffee size={18} />
+                    </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Keyboard shortcuts" withArrow>
+                    <ActionIcon variant="default" size="lg" aria-label="Keyboard shortcuts" onClick={onShowShortcuts}>
+                        <Keyboard size={18} />
                     </ActionIcon>
                 </Tooltip>
                 <Tooltip label={scheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} withArrow>

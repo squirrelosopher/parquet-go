@@ -1,11 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type MutableRefObject, type ReactNode } from 'react';
-import { MantineReactTable, useMantineReactTable, MRT_ShowHideColumnsButton, MRT_ToggleFiltersButton, MRT_TopToolbar, type MRT_ColumnDef, type MRT_Updater } from 'mantine-react-table';
-import { Box, Group, Text } from '@mantine/core';
+import { MantineReactTable, useMantineReactTable, MRT_ToggleFiltersButton, MRT_TopToolbar, type MRT_ColumnDef, type MRT_Updater } from 'mantine-react-table';
+import { Box, Collapse, Group, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { SearchBox } from './SearchBox';
 import { DensityToggle } from './DensityToggle';
 import { FullscreenToggle } from './FullscreenToggle';
 import { SqlToggle } from './SqlToggle';
+import { ColumnsMenu } from './ColumnsMenu';
 // The editor is off by default and drags in CodeMirror, so it is fetched on first use.
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlEditor })));
 import { ColumnFilter } from './ColumnFilter';
@@ -15,9 +16,10 @@ import { resolveUpdater, type ViewState } from '../lib/views';
 import { describeQuery, execute, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
 import { countSql, exportSql, pageSql, trimStatement, updateCellSql, type QuerySpec } from '../lib/sql';
 import { formatCell } from '../lib/format';
-import { downloadCsv } from '../lib/exportCsv';
+import { ShortcutId } from '../lib/shortcuts';
+import { useShortcuts } from '../lib/useShortcuts';
+import { downloadCsv, type CsvExportOptions } from '../lib/exportCsv';
 import { EditableHeader } from './EditableHeader';
-import type { ExportRowsOptions } from './ExportRowsDialog';
 
 const CHAR_PX = 8;
 const CELL_CHROME = 46;
@@ -26,6 +28,7 @@ const MIN_CAP = 240;
 const SAMPLE_ROWS = 200;
 const SLOW_QUERY_MS = 250;
 const COLUMN_NAME_MAX = 100;
+const SQL_EDITOR_SLIDE_MS = 200;
 
 const longestWord = (text: string): number =>
     text.split(/\s+/).reduce((max, word) => Math.max(max, word.length), 0);
@@ -47,7 +50,7 @@ const failed = (action: string, error: unknown) => notifications.show({
 
 interface DataTableProps {
     dataset: Dataset;
-    exportRef: MutableRefObject<((options: ExportRowsOptions) => void) | null>;
+    exportRef: MutableRefObject<((options: CsvExportOptions) => void) | null>;
     viewState: ViewState;
     onViewStateChange: (update: (previous: ViewState) => ViewState) => void;
     tabs?: ReactNode;
@@ -62,6 +65,8 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
     const [showFilters, setShowFilters] = useState(false);
     const [fullscreen, setFullscreen] = useState(false);
     const [sqlOpen, setSqlOpen] = useState(false);
+    const [sqlMounted, setSqlMounted] = useState(false);
+    const [columnsOpen, setColumnsOpen] = useState(false);
     const [sqlColumns, setSqlColumns] = useState<string[] | null>(null);
     const [rows, setRows] = useState<Row[]>([]);
     const [sample, setSample] = useState<Row[]>([]);
@@ -103,6 +108,11 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         })();
         return () => { cancelled = true; };
     }, [userSql]);
+
+    // The grid is unusable with nothing in it, so the last column standing cannot be
+    // switched off. MRT reads enableHiding through getCanHide to disable its own switch.
+    const visibleKeys = keys.filter((key) => viewState.columnVisibility[key] !== false);
+    const lockedKey = visibleKeys.length === 1 ? visibleKeys[0] : null;
 
     const { pageIndex, pageSize } = viewState.pagination;
     const spec: QuerySpec = {
@@ -169,6 +179,9 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
 
     // Column widths come from a fixed sample so they do not shift from page to page.
     useEffect(() => {
+        if (!ready) {
+            return;
+        }
         let cancelled = false;
         (async () => {
             try {
@@ -233,6 +246,18 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         window.addEventListener('keydown', onKey, true);
         return () => window.removeEventListener('keydown', onKey, true);
     }, [fullscreen, toggleFullscreen]);
+
+    const toggleSql = useCallback(() => {
+        setSqlMounted(true);
+        setSqlOpen((open) => !open);
+    }, []);
+
+    useShortcuts({
+        [ShortcutId.ToggleSqlEditor]: toggleSql,
+        [ShortcutId.ToggleFilters]: () => setShowFilters((shown) => !shown),
+        [ShortcutId.ToggleColumns]: () => setColumnsOpen((shown) => !shown),
+        [ShortcutId.ToggleFullscreen]: toggleFullscreen,
+    });
 
     const applySql = useCallback(async (draft: string) => {
         const text = trimStatement(draft);
@@ -312,8 +337,9 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                 void updateCell(Number(row.original[ROW_ID]), key, e.currentTarget.value);
             },
         }),
+        enableHiding: key !== lockedKey,
         minSize: columnMinSize(key, sample.map((row) => formatCell(row[key]))),
-    })), [keys, labels, sample, renameColumn, updateCell]);
+    })), [keys, labels, sample, lockedKey, renameColumn, updateCell]);
 
     const table = useMantineReactTable({
         columns,
@@ -354,7 +380,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             columnSizing: viewState.columnSizing,
             columnOrder: viewState.columnOrder,
             showColumnFilters: showFilters,
-            isLoading: loading,
+            isLoading: loading || !ready,
             isFullScreen: fullscreen,
         },
         onSortingChange: patch('sorting'),
@@ -378,17 +404,19 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         renderTopToolbar: ({ table }) => (
             <>
                 <MRT_TopToolbar table={table} />
-                {sqlOpen && (
-                    <Suspense fallback={<Box className="sql-editor-pending" />}>
-                    <SqlEditor
-                        value={viewState.sql}
-                        alias={dataset.alias}
-                        columns={dataset.columns}
-                        onRun={(draft) => void applySql(draft)}
-                        onClear={clearSql}
-                    />
-                    </Suspense>
-                )}
+                <Collapse className="sql-editor-collapse" in={sqlOpen} transitionDuration={SQL_EDITOR_SLIDE_MS}>
+                    {sqlMounted && (
+                        <Suspense fallback={<Box className="sql-editor-pending" />}>
+                            <SqlEditor
+                                value={viewState.sql}
+                                alias={dataset.alias}
+                                columns={dataset.columns}
+                                onRun={(draft) => void applySql(draft)}
+                                onClear={clearSql}
+                            />
+                        </Suspense>
+                    )}
+                </Collapse>
             </>
         ),
         renderTopToolbarCustomActions: () => <>{tabs}</>,
@@ -401,8 +429,8 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             <Group gap={2} wrap="nowrap">
                 <SearchBox table={table} />
                 <MRT_ToggleFiltersButton table={table} />
-                <MRT_ShowHideColumnsButton table={table} />
-                <SqlToggle open={sqlOpen} active={!!userSql} onToggle={() => setSqlOpen((o) => !o)} />
+                <ColumnsMenu table={table} opened={columnsOpen} onChange={setColumnsOpen} />
+                <SqlToggle open={sqlOpen} active={!!userSql} onToggle={toggleSql} />
                 <DensityToggle compact={compact} onToggle={() => setCompact((c) => !c)} />
                 <FullscreenToggle active={fullscreen} onToggle={toggleFullscreen} />
             </Group>

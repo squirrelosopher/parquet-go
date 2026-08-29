@@ -103,20 +103,76 @@ body {
     background-color: var(--mantine-color-indigo-light);
     color: var(--mantine-color-indigo-light-color);
 }
-/* The name itself always reads in the theme's text colour — black on light, white on
-   dark — leaving the accent to the row's fill and its icon. */
 .file-item-name {
+    color: var(--mantine-color-text);
+    white-space: nowrap;
+    flex: none;
+}
+
+.file-item-alias {
+    color: var(--mantine-color-dimmed);
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.sidebar-resizer {
+    flex: none;
+    width: 5px;
+    margin: 0 -2px;
+    position: relative;
+    z-index: 1;
+    cursor: col-resize;
+    background-color: transparent;
+    transition: background-color 0.1s ease;
+    touch-action: none;
+}
+.sidebar-resizer:hover,
+.sidebar-resizer[data-dragging='true'] {
+    background-color: var(--mantine-color-indigo-light);
+}
+
+/* Mantine sets --ti-color inline from the `color` prop, so colour the glyph itself
+   rather than trying to outrank it. */
+.filedrop-badge svg,
+.feature-badge svg {
     color: var(--mantine-color-text);
 }
 
-/*
- * At rest the drop zone's icon is not signalling anything, so it reads in the theme's
- * text colour — black on light, white on dark. The drag states keep their accent.
- */
-/* Mantine sets --ti-color inline from the `color` prop, so colour the glyph itself
-   rather than trying to outrank it. */
-.filedrop-idle svg {
+.filedrop-prompt {
+    min-width: 0;
+    overflow: hidden;
+}
+.filedrop-prompt > * {
+    white-space: nowrap;
+}
+
+.filedrop-hint {
+    line-height: 1.5;
+}
+.filedrop-hint-action {
+    color: var(--mantine-color-indigo-light-color);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+}
+
+.mantine-Dropzone-root[data-accept],
+.mantine-Dropzone-root[data-reject] {
     color: var(--mantine-color-text);
+}
+[data-mantine-color-scheme='light'] .mantine-Dropzone-root[data-accept],
+[data-mantine-color-scheme='light'] .mantine-Dropzone-root[data-reject] {
+    background-color: var(--mantine-color-gray-0);
+    border-color: var(--mantine-color-gray-4);
+}
+[data-mantine-color-scheme='dark'] .mantine-Dropzone-root[data-accept],
+[data-mantine-color-scheme='dark'] .mantine-Dropzone-root[data-reject] {
+    background-color: var(--mantine-color-dark-5);
+    border-color: var(--mantine-color-dark-4);
 }
 
 /*
@@ -167,6 +223,10 @@ body {
 }
 .sql-editor-code .cm-content {
     padding: 8px 10px;
+}
+
+.sql-editor-collapse {
+    flex: none;
 }
 
 /* Holds the row's height while CodeMirror is fetched, so nothing jumps. */
@@ -385,4 +445,41 @@ body {
    of it just looks like a smudge. */
 .search-box[data-open='true'] .search-box-toggle:hover {
     background-color: transparent;
+}
+
+.shortcuts-modal .mantine-Modal-content {
+    background-color: color-mix(in srgb, var(--mantine-color-body) 78%, transparent);
+    backdrop-filter: blur(14px);
+}
+.shortcuts-modal .mantine-Modal-header {
+    background-color: transparent;
+}
+
+.columns-menu-action {
+    color: var(--mantine-color-text);
+    background-color: transparent;
+}
+.columns-menu-action:disabled {
+    color: var(--mantine-color-dimmed);
+    background-color: transparent;
+}
+[data-mantine-color-scheme='light'] .columns-menu-action:not(:disabled):hover {
+    background-color: var(--mantine-color-gray-0);
+}
+[data-mantine-color-scheme='dark'] .columns-menu-action:not(:disabled):hover {
+    background-color: var(--mantine-color-dark-5);
+}
+
+.mobile-notice {
+    display: none;
+}
+
+@media (max-width: 768px) and (pointer: coarse) {
+    .app-shell {
+        display: none !important;
+    }
+    .mobile-notice {
+        display: flex;
+        height: 100vh;
+    }
 }

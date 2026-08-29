@@ -1,3 +1,8 @@
+export interface CsvExportOptions {
+    limit?: number;
+    header: boolean;
+}
+
 export function downloadCsv(fileName: string, bytes: Uint8Array): void {
     const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);

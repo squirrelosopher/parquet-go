@@ -3,24 +3,40 @@ import { Box, Center, Stack, Title, Text, Modal, Button, Group } from '@mantine/
 import { notifications } from '@mantine/notifications';
 import { Check, TriangleAlert } from 'lucide-react';
 import { Header } from './components/Header';
-import { FileDrop } from './components/FileDrop';
+import { FileDrop, notifyUnsupportedFile } from './components/FileDrop';
+import { FeatureGrid } from './components/FeatureGrid';
 import { TableSkeleton } from './components/TableSkeleton';
 import { DataTable } from './components/DataTable';
 import { Sidebar } from './components/Sidebar';
+import { SidebarResizer, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_FLOOR_WIDTH } from './components/SidebarResizer';
 import { ViewTabs } from './components/ViewTabs';
 import { ConfirmDialog } from './components/ConfirmDialog';
-import { ExportRowsDialog, type ExportRowsOptions } from './components/ExportRowsDialog';
+import { ShortcutsDialog } from './components/ShortcutsDialog';
+import { ExportRowsDialog } from './components/ExportRowsDialog';
 import { loadDataset } from './lib/readFile';
 import { listFiles, getActiveId, getBuffer, addFile, clearFiles, renameFile as renameStored, setActiveId as persistActive, removeFile as removeStored, duplicateFile as duplicateStored, getViews, setViews, type FileMeta } from './lib/store';
 import { dropTable, exportQueryCsv } from './lib/duckdb';
 import { exportSql } from './lib/sql';
-import { downloadCsv } from './lib/exportCsv';
+import { downloadCsv, type CsvExportOptions } from './lib/exportCsv';
 import { createViewState, DEFAULT_VIEW_NAME, hasFilters, normalizeViewState, type View, type ViewState } from './lib/views';
+import { isParquet } from './lib/fileTypes';
+import { isShortcut, ShortcutId } from './lib/shortcuts';
+import { useShortcuts } from './lib/useShortcuts';
 import type { Dataset } from './lib/types';
 
-const SIDEBAR_WIDTH = 280;
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
-const getRoute = (): 'home' | 'view' => (window.location.hash.replace(/^#\/?/, '') === 'view' ? 'view' : 'home');
+enum Route {
+    Home = 'home',
+    Explore = 'explore',
+}
+
+// Links from before the rename still land in the right place.
+const LEGACY_EXPLORE_HASH = 'view';
+
+const getRoute = (): Route => {
+    const hash = window.location.hash.replace(/^#\/?/, '');
+    return hash === Route.Explore || hash === LEGACY_EXPLORE_HASH ? Route.Explore : Route.Home;
+};
 
 const whenIdle = () => new Promise<void>((resolve) => {
     const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback;
@@ -58,21 +74,48 @@ export function App() {
     const [activeId, setActiveId] = useState<string | null>(null);
     const [dataset, setDataset] = useState<Dataset | null>(null);
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+    const [resizing, setResizing] = useState(false);
+    const [minSidebarWidth, setMinSidebarWidth] = useState(SIDEBAR_FLOOR_WIDTH);
     const [route, setRoute] = useState(getRoute);
     const [promptFile, setPromptFile] = useState<File | null>(null);
     const [model, setModel] = useState<ViewsModel>(EMPTY_VIEWS);
     const [closeTarget, setCloseTarget] = useState<CloseRequest | null>(null);
     const [exportOpen, setExportOpen] = useState(false);
+    const [shortcutsOpen, setShortcutsOpen] = useState(false);
+    const [resetOpen, setResetOpen] = useState(false);
+    const [loadFailed, setLoadFailed] = useState(false);
     const [hydrated, setHydrated] = useState(false);
     const booted = useRef(false);
     const restoring = useRef<Promise<void> | null>(null);
-    const exportRef = useRef<((options: ExportRowsOptions) => void) | null>(null);
+    const exportRef = useRef<((options: CsvExportOptions) => void) | null>(null);
+
+    const adoptMinSidebarWidth = useCallback((required: number) => {
+        const minimum = Math.max(SIDEBAR_FLOOR_WIDTH, required);
+        setMinSidebarWidth(minimum);
+        setSidebarWidth((current) => Math.max(current, minimum));
+    }, []);
 
     const fileViews = model.views.filter((v) => v.fileId === activeId);
     const preferredViewId = activeId ? model.activeByFile[activeId] : undefined;
     const activeView = fileViews.find((v) => v.id === preferredViewId) ?? fileViews[0] ?? null;
     const activeViewId = activeView?.id ?? null;
     const activeViewState = activeViewId ? model.states[activeViewId] : undefined;
+    const canExport = !!dataset && !!activeViewState;
+
+    useShortcuts({
+        [ShortcutId.ToggleSidebar]: () => route === Route.Explore && setSidebarOpen((open) => !open),
+        [ShortcutId.ExportView]: () => canExport && setExportOpen(true),
+    });
+
+    useEffect(() => {
+        if (!shortcutsOpen) {
+            return;
+        }
+        const dismiss = (event: KeyboardEvent) => isShortcut(event) && setShortcutsOpen(false);
+        window.addEventListener('keydown', dismiss);
+        return () => window.removeEventListener('keydown', dismiss);
+    }, [shortcutsOpen]);
 
     // Restore first, so a file loading in parallel cannot create a duplicate "View 1"
     // before the stored tabs arrive. Declared ahead of the boot effect that awaits it.
@@ -204,17 +247,30 @@ export function App() {
 
     const loadActive = async (meta: FileMeta) => {
         setDataset(null);
-        const buffer = await getBuffer(meta.id);
-        if (buffer) {
+        setLoadFailed(false);
+        try {
+            const buffer = await getBuffer(meta.id);
+            if (!buffer) {
+                throw new Error('its contents are no longer stored');
+            }
             const loaded = await loadDataset(meta.id, meta.name, buffer);
             await restoring.current;
             setDataset(loaded);
             ensureView(meta.id, loaded.columns);
+        } catch (e) {
+            setLoadFailed(true);
+            notifications.show({
+                color: 'red',
+                icon: <TriangleAlert size={18} />,
+                title: 'Could not read file',
+                message: `${meta.name}: ${e instanceof Error ? e.message : String(e)}`,
+                autoClose: false,
+            });
         }
     };
 
     useEffect(() => {
-        if (route !== 'view' || booted.current) {
+        if (route !== Route.Explore || booted.current) {
             return;
         }
         booted.current = true;
@@ -234,6 +290,10 @@ export function App() {
     }, [route]);
 
     const requestOpen = (file: File) => {
+        if (!isParquet(file.name)) {
+            notifyUnsupportedFile();
+            return;
+        }
         if (files.length) {
             setPromptFile(file);
         } else {
@@ -250,9 +310,14 @@ export function App() {
     };
 
     const openFile = async (file: File) => {
+        if (!isParquet(file.name)) {
+            notifyUnsupportedFile();
+            return;
+        }
         booted.current = true;
         setDataset(null);
-        window.location.hash = '/view';
+        setLoadFailed(false);
+        window.location.hash = `/${Route.Explore}`;
         await nextFrame();
         try {
             const buffer = await file.arrayBuffer();
@@ -300,6 +365,7 @@ export function App() {
             }
             return;
         }
+        setDataset(null);
         setActiveId(meta.id);
         await persistActive(meta.id);
         await loadActive(meta);
@@ -329,12 +395,14 @@ export function App() {
             return;
         }
         if (remaining.length) {
+            setDataset(null);
             setActiveId(remaining[0].id);
             await persistActive(remaining[0].id);
             await loadActive(remaining[0]);
         } else {
             setActiveId(null);
             setDataset(null);
+            setLoadFailed(false);
             booted.current = false;
             window.location.hash = '';
         }
@@ -362,7 +430,22 @@ export function App() {
         }
     };
 
-    const exportFile = async (meta: FileMeta, opts: { limit?: number; header: boolean }) => {
+    const resetEditor = async () => {
+        const stale = await listFiles();
+        await clearFiles();
+        for (const file of stale) {
+            await dropTable(file.id);
+        }
+        setFiles([]);
+        setActiveId(null);
+        setDataset(null);
+        setModel(EMPTY_VIEWS);
+        setLoadFailed(false);
+        booted.current = false;
+        window.location.hash = '';
+    };
+
+    const exportFile = async (meta: FileMeta, options: CsvExportOptions) => {
         let ds = meta.id === activeId ? dataset : null;
         if (!ds) {
             const buffer = await getBuffer(meta.id);
@@ -371,27 +454,62 @@ export function App() {
             }
             ds = await loadDataset(meta.id, meta.name, buffer);
         }
-        const sql = exportSql({ table: ds.table, sql: '', columns: ds.columns, filters: [], search: '', sorting: [] }, ds.columns, opts.limit);
-        downloadCsv(ds.name, await exportQueryCsv(sql, opts.header));
+        const sql = exportSql({ table: ds.table, sql: '', columns: ds.columns, filters: [], search: '', sorting: [] }, ds.columns, options.limit);
+        downloadCsv(ds.name, await exportQueryCsv(sql, options.header));
+    };
+
+    const renderGrid = () => {
+        if (loadFailed) {
+            return <LoadFailed />;
+        }
+        if (!dataset) {
+            return <TableSkeleton />;
+        }
+        if (activeViewId && activeViewState) {
+            return (
+                <DataTable
+                    dataset={dataset}
+                    exportRef={exportRef}
+                    viewState={activeViewState}
+                    onViewStateChange={updateViewState(activeViewId)}
+                    tabs={(
+                        <ViewTabs
+                            views={fileViews}
+                            activeId={activeViewId}
+                            onSelect={selectView}
+                            onClose={(view) => requestClose([view])}
+                            onCloseAll={() => requestClose(fileViews)}
+                            onCloseAllExcept={closeAllExcept}
+                            onCloseToTheLeft={closeToTheLeft}
+                            onRename={renameView}
+                            onAdd={addView}
+                        />
+                    )}
+                />
+            );
+        }
+        return fileViews.length ? <TableSkeleton /> : <NoViews />;
     };
 
     return (
-        <Box style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <Box className="app-shell" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
             <Header
-                onToggleSidebar={route === 'view' ? () => setSidebarOpen((o) => !o) : undefined}
+                onToggleSidebar={route === Route.Explore ? () => setSidebarOpen((o) => !o) : undefined}
                 onOpen={requestOpen}
-                onExport={dataset && activeViewState ? () => setExportOpen(true) : undefined}
+                onExport={canExport ? () => setExportOpen(true) : undefined}
+                onReset={files.length ? () => setResetOpen(true) : undefined}
+                onShowShortcuts={() => setShortcutsOpen(true)}
             />
             <Box style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-                {route === 'view' && (
+                {route === Route.Explore && (
                     <Box style={{
-                        width: sidebarOpen ? SIDEBAR_WIDTH : 0,
+                        width: sidebarOpen ? sidebarWidth : 0,
                         flex: 'none',
                         overflow: 'hidden',
                         borderRight: sidebarOpen ? '1px solid var(--mantine-color-default-border)' : 'none',
-                        transition: 'width 0.15s ease',
+                        transition: resizing ? 'none' : 'width 0.15s ease',
                     }}>
-                        <Box w={SIDEBAR_WIDTH} h="100%">
+                        <Box w={sidebarWidth} h="100%">
                             <Sidebar
                                 files={files}
                                 activeId={activeId}
@@ -401,38 +519,16 @@ export function App() {
                                 onRename={renameFile}
                                 onDuplicate={duplicateFile}
                                 onExport={exportFile}
+                                onMinWidth={adoptMinSidebarWidth}
                             />
                         </Box>
                     </Box>
                 )}
+                {route === Route.Explore && sidebarOpen && (
+                    <SidebarResizer width={sidebarWidth} minWidth={minSidebarWidth} onResize={setSidebarWidth} onDragChange={setResizing} />
+                )}
                 <Box style={{ flex: 1, minWidth: 0 }}>
-                    {route === 'view'
-                        ? (dataset && activeViewId && activeViewState
-                            ? (
-                                <DataTable
-                                    dataset={dataset}
-                                    exportRef={exportRef}
-                                    viewState={activeViewState}
-                                    onViewStateChange={updateViewState(activeViewId)}
-                                    tabs={(
-                                        <ViewTabs
-                                            views={fileViews}
-                                            activeId={activeViewId}
-                                            onSelect={selectView}
-                                            onClose={(view) => requestClose([view])}
-                                            onCloseAll={() => requestClose(fileViews)}
-                                            onCloseAllExcept={closeAllExcept}
-                                            onCloseToTheLeft={closeToTheLeft}
-                                            onRename={renameView}
-                                            onAdd={addView}
-                                        />
-                                    )}
-                                />
-                            )
-                            : dataset && !fileViews.length
-                                ? <NoViews />
-                                : <TableSkeleton />)
-                        : <HomeRoute onFile={openFile} />}
+                    {route === Route.Explore ? renderGrid() : <HomeRoute onFile={openFile} />}
                 </Box>
             </Box>
 
@@ -458,6 +554,19 @@ export function App() {
                 onSubmit={(options) => exportRef.current?.(options)}
             />
 
+            <ShortcutsDialog opened={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+            <ConfirmDialog
+                opened={resetOpen}
+                title="Reset editor"
+                message="Remove all open files, views and queries?"
+                confirmLabel="Yes"
+                cancelLabel="No"
+                danger
+                onClose={() => setResetOpen(false)}
+                onConfirm={() => void resetEditor()}
+            />
+
             <ConfirmDialog
                 opened={closeTarget !== null}
                 title={closeTarget && closeTarget.targets.length > 1 ? 'Close views' : 'Close view'}
@@ -469,6 +578,17 @@ export function App() {
                 onConfirm={() => closeTarget && closeViews(closeTarget.targets)}
             />
         </Box>
+    );
+}
+
+function LoadFailed() {
+    return (
+        <Center h="100%" p="md">
+            <Stack align="center" gap={4}>
+                <Text fw={600}>Could not open this file</Text>
+                <Text c="dimmed" fz="sm" ta="center">Pick another file in the sidebar, or open a Parquet file.</Text>
+            </Stack>
+        </Center>
     );
 }
 
@@ -485,15 +605,16 @@ function NoViews() {
 
 function HomeRoute({ onFile }: { onFile: (file: File) => void }) {
     return (
-        <Center p="md" h="100%">
-            <Stack align="center" gap="lg" w="100%" maw={700}>
+        <Center p="md" h="100%" style={{ overflowY: 'auto' }}>
+            <Stack align="center" gap="xl" w="100%" maw={700}>
                 <Stack align="center" gap={6}>
-                    <Title order={1} fz={{ base: 26, sm: 32 }} fw={700} lts={-0.5} ta="center">Local Parquet Viewer</Title>
+                    <Title order={1} fz={{ base: 26, sm: 32 }} fw={700} lts={-0.5} ta="center">Local Parquet Explorer</Title>
                     <Text c="dimmed" ta="center">
-                        Browse columns and rows, sort, filter, and export, all in your browser.
+                        Query, filter, edit and export. Everything runs in your browser, nothing is uploaded.
                     </Text>
                 </Stack>
                 <FileDrop onFile={onFile} />
+                <FeatureGrid />
             </Stack>
         </Center>
     );

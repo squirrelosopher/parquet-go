@@ -1,15 +1,12 @@
-import { useState } from 'react';
-import { Stack, Text, Group, ScrollArea, Divider, Menu } from '@mantine/core';
-import { Box as CubeIcon, Pencil, Copy, FileDown, Trash2 } from 'lucide-react';
-import { FileDrop } from './FileDrop';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { Stack, Text, Group, ScrollArea, Divider, Menu, Tooltip, ActionIcon } from '@mantine/core';
+import { Box as CubeIcon, Pencil, Copy, FileDown, Trash2, Eye, EyeOff } from 'lucide-react';
+import { DropZoneLayout, FileDrop } from './FileDrop';
 import { RenameDialog } from './RenameDialog';
 import { ConfirmDialog } from './ConfirmDialog';
+import { aliasFor } from '../lib/alias';
+import type { CsvExportOptions } from '../lib/exportCsv';
 import type { FileMeta } from '../lib/store';
-
-export interface ExportRequest {
-    limit?: number;
-    header: boolean;
-}
 
 interface SidebarProps {
     files: FileMeta[];
@@ -19,8 +16,11 @@ interface SidebarProps {
     onRemove: (file: FileMeta) => void;
     onRename: (file: FileMeta, name: string) => void;
     onDuplicate: (file: FileMeta) => void;
-    onExport: (file: FileMeta, request: ExportRequest) => void;
+    onExport: (file: FileMeta, options: CsvExportOptions) => void;
+    onMinWidth: (width: number) => void;
 }
+
+const NAME_TRAILING_SPACE = 20;
 
 interface MenuState {
     file: FileMeta;
@@ -28,34 +28,76 @@ interface MenuState {
     y: number;
 }
 
-export function Sidebar({ files, activeId, onSwitch, onAdd, onRemove, onRename, onDuplicate, onExport }: SidebarProps) {
+export function Sidebar({ files, activeId, onSwitch, onAdd, onRemove, onRename, onDuplicate, onExport, onMinWidth }: SidebarProps) {
     const [menu, setMenu] = useState<MenuState | null>(null);
     const [renameTarget, setRenameTarget] = useState<FileMeta | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<FileMeta | null>(null);
+    const [showAliases, setShowAliases] = useState(true);
+    const rootRef = useRef<HTMLDivElement>(null);
+
+    const reportWidestName = useCallback(() => {
+        const root = rootRef.current;
+        if (!root) {
+            return;
+        }
+        const left = root.getBoundingClientRect().left;
+        let widest = 0;
+        for (const name of root.querySelectorAll<HTMLElement>('.file-item-name')) {
+            widest = Math.max(widest, name.getBoundingClientRect().right - left);
+        }
+        onMinWidth(widest ? Math.ceil(widest + NAME_TRAILING_SPACE) : 0);
+    }, [onMinWidth]);
+
+    useLayoutEffect(() => {
+        reportWidestName();
+        void document.fonts?.ready.then(reportWidestName);
+    }, [files, reportWidestName]);
 
     return (
-        <Stack gap="sm" p="sm" h="100%">
-            <Text fz="xs" fw={700} tt="uppercase" c="dimmed" lts={0.6}>Files</Text>
+        <Stack ref={rootRef} gap="sm" p="sm" h="100%">
+            <Group justify="space-between" align="center" gap="xs" wrap="nowrap">
+                <Text fz="xs" fw={700} tt="uppercase" c="dimmed" lts={0.6}>Files</Text>
+                <Tooltip label={showAliases ? 'Hide SQL aliases' : 'Show SQL aliases'} withArrow>
+                    <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        size="sm"
+                        aria-label={showAliases ? 'Hide SQL aliases' : 'Show SQL aliases'}
+                        aria-pressed={showAliases}
+                        onClick={() => setShowAliases((shown) => !shown)}
+                    >
+                        {showAliases ? <Eye size={14} /> : <EyeOff size={14} />}
+                    </ActionIcon>
+                </Tooltip>
+            </Group>
             <ScrollArea style={{ flex: 1 }} type="hover">
                 <Stack gap={2}>
                     {files.map((file) => (
-                        <Group
+                        <Tooltip
                             key={file.id}
-                            className="file-item"
-                            data-active={file.id === activeId}
-                            gap="xs"
-                            wrap="nowrap"
-                            onClick={() => onSwitch(file)}
-                            onContextMenu={(e) => { e.preventDefault(); setMenu({ file, x: e.clientX, y: e.clientY }); }}
+                            label={showAliases ? `${file.name} · ${aliasFor(file.name)}` : file.name}
+                            openDelay={400}
+                            position="right"
+                            withArrow
                         >
-                            <CubeIcon size={16} style={{ flex: 'none' }} />
-                            <Text className="file-item-name" fz="sm" truncate style={{ flex: 1, minWidth: 0 }}>{file.name}</Text>
-                        </Group>
+                            <Group
+                                className="file-item"
+                                data-active={file.id === activeId}
+                                gap="xs"
+                                wrap="nowrap"
+                                onClick={() => onSwitch(file)}
+                                onContextMenu={(e) => { e.preventDefault(); setMenu({ file, x: e.clientX, y: e.clientY }); }}
+                            >
+                                <CubeIcon size={16} style={{ flex: 'none' }} />
+                                <Text className="file-item-name" fz="sm">{file.name}</Text>
+                                {showAliases && <Text className="file-item-alias" fz="xs">{aliasFor(file.name)}</Text>}
+                            </Group>
+                        </Tooltip>
                     ))}
                 </Stack>
             </ScrollArea>
             <Divider />
-            <FileDrop onFile={onAdd} compact />
+            <FileDrop onFile={onAdd} layout={DropZoneLayout.Compact} />
 
             {menu && (
                 <Menu opened onClose={() => setMenu(null)} withinPortal position="right-start" offset={2}>

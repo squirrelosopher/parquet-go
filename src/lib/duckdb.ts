@@ -3,6 +3,7 @@ import mvpWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url
 import mvpWasm from '@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url';
 import ehWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
 import ehWasm from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url';
+import { aliasFor } from './alias';
 import type { Row } from './types';
 
 /**
@@ -20,7 +21,7 @@ let connecting: Promise<duckdb.AsyncDuckDBConnection> | null = null;
 let queue: Promise<unknown> = Promise.resolve();
 
 /** Boots the engine on first use — nothing is downloaded until a file is opened. */
-export function getDb(): Promise<duckdb.AsyncDuckDB> {
+function getDb(): Promise<duckdb.AsyncDuckDB> {
     if (!pending) {
         pending = (async () => {
             const bundle = await duckdb.selectBundle(BUNDLES);
@@ -53,7 +54,7 @@ function run<T>(work: (conn: duckdb.AsyncDuckDBConnection) => Promise<T>): Promi
 /** Row identity for edits: assigned once at load and never reused. */
 export const ROW_ID = '__rid';
 
-export interface LoadedTable {
+interface LoadedTable {
     table: string;
     alias: string;
     columns: string[];
@@ -61,22 +62,6 @@ export interface LoadedTable {
 }
 
 const tableName = (id: string) => `t_${id.replace(/-/g, '')}`;
-
-/**
- * A name worth typing in the SQL box. File names are already unique, so sanitising
- * one keeps aliases unique too; leading digits get a prefix to stay a valid identifier.
- */
-export function aliasFor(fileName: string): string {
-    const cleaned = fileName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-    return /^[a-z_]/.test(cleaned) ? cleaned : `t_${cleaned}`;
-}
-
-/** Points the readable alias at the file's table; safe to call again after a rename. */
-export async function aliasTable(id: string, fileName: string): Promise<string> {
-    const alias = aliasFor(fileName);
-    await run((conn) => conn.query(`CREATE OR REPLACE VIEW ${ident(alias)} AS SELECT * FROM ${ident(tableName(id))}`));
-    return alias;
-}
 
 /** Column names a query would produce, and the cheapest way to find out if it is valid. */
 export async function describeQuery(sql: string): Promise<string[]> {
@@ -91,17 +76,13 @@ export async function loadTable(id: string, name: string, buffer: ArrayBuffer): 
     const db = await getDb();
     const file = `${id}-${name}`;
     const table = tableName(id);
-    const ext = name.split('.').pop()?.toLowerCase();
-    const reader = ext === 'parquet' || ext === 'pq'
-        ? `read_parquet(${literal(file)})`
-        : `read_csv_auto(${literal(file)}, all_varchar = false)`;
 
     // Registering transfers the buffer to the worker and detaches it, so hand over a
     // copy — the caller still needs the original to put in IndexedDB.
     await db.registerFileBuffer(file, new Uint8Array(buffer.slice(0)));
     return run(async (conn) => {
         await conn.query(`CREATE OR REPLACE TABLE ${ident(table)} AS
-            SELECT (row_number() OVER () - 1)::BIGINT AS ${ident(ROW_ID)}, * FROM ${reader}`);
+            SELECT (row_number() OVER () - 1)::BIGINT AS ${ident(ROW_ID)}, * FROM read_parquet(${literal(file)})`);
         const described = await conn.query(`DESCRIBE ${ident(table)}`);
         const columns = described.toArray()
             .map((r) => String((r as unknown as { column_name: string }).column_name))

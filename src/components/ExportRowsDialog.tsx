@@ -1,16 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Modal, NumberInput, Switch, Group, Button, Stack } from '@mantine/core';
-
-export interface ExportRowsOptions {
-    /** Undefined exports everything the view currently shows. */
-    limit?: number;
-    header: boolean;
-}
+import type { CsvExportOptions } from '../lib/exportCsv';
 
 interface ExportRowsDialogProps {
     opened: boolean;
     onClose: () => void;
-    onSubmit: (options: ExportRowsOptions) => void;
+    onSubmit: (options: CsvExportOptions) => void;
 }
 
 const DEFAULT_LIMIT = 1000;
