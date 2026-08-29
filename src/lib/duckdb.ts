@@ -65,12 +65,31 @@ export const ROW_ID = '__rid';
 
 interface LoadedTable {
     table: string;
-    alias: string;
     columns: string[];
     rowCount: number;
 }
 
-const tableName = (id: string) => `t_${id.replace(/-/g, '')}`;
+/**
+ * A table is named after the file it came from, so a query in the SQL box reads the
+ * way the file does. Two files can ask for the same name, and a file can be loaded
+ * again, so what a file was actually given is remembered rather than recomputed.
+ */
+const tableNames = new Map<string, string>();
+
+function tableNameFor(id: string, fileName: string): string {
+    const existing = tableNames.get(id);
+    if (existing) {
+        return existing;
+    }
+    const base = aliasFor(fileName);
+    const taken = new Set(tableNames.values());
+    let name = base;
+    for (let n = 2; taken.has(name); n++) {
+        name = `${base}_${n}`;
+    }
+    tableNames.set(id, name);
+    return name;
+}
 
 /** Column names a query would produce, and the cheapest way to find out if it is valid. */
 export async function describeQuery(sql: string): Promise<string[]> {
@@ -84,7 +103,7 @@ const literal = (value: string) => `'${value.replace(/'/g, "''")}'`;
 export async function loadTable(id: string, name: string, buffer: ArrayBuffer): Promise<LoadedTable> {
     const db = await getDb();
     const file = `${id}-${name}`;
-    const table = tableName(id);
+    const table = tableNameFor(id, name);
 
     // Registering transfers the buffer to the worker and detaches it, so hand over a
     // copy — the caller still needs the original to put in IndexedDB.
@@ -98,17 +117,17 @@ export async function loadTable(id: string, name: string, buffer: ArrayBuffer): 
             .filter((c) => c !== ROW_ID);
         const counted = await conn.query(`SELECT count(*)::BIGINT AS n FROM ${ident(table)}`);
         const rowCount = Number((counted.toArray()[0] as unknown as { n: bigint }).n);
-        const alias = aliasFor(name);
-        await conn.query(`CREATE OR REPLACE VIEW ${ident(alias)} AS SELECT * FROM ${ident(table)}`);
-        return { table, alias, columns, rowCount };
+        return { table, columns, rowCount };
     });
 }
 
 export async function dropTable(id: string): Promise<void> {
-    if (!pending) {
+    const table = tableNames.get(id);
+    if (!pending || !table) {
         return;
     }
-    await run((conn) => conn.query(`DROP TABLE IF EXISTS ${ident(tableName(id))} CASCADE`));
+    tableNames.delete(id);
+    await run((conn) => conn.query(`DROP TABLE IF EXISTS ${ident(table)} CASCADE`));
 }
 
 /** Arrow rows are lazy proxies; hand the grid plain objects it can hold on to. */

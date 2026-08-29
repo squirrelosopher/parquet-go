@@ -10,7 +10,7 @@ import { ColumnsMenu } from './ColumnsMenu';
 // The editor is off by default and drags in CodeMirror, so it is fetched on first use.
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({ default: m.SqlEditor })));
 import { ColumnFilter } from './ColumnFilter';
-import { ArrowUp, ArrowDown, Filter, FilterX, Columns3, TriangleAlert } from 'lucide-react';
+import { ArrowUp, ArrowDown, Check, Filter, FilterX, Columns3, TriangleAlert } from 'lucide-react';
 import type { Dataset, Row } from '../lib/types';
 import { resolveUpdater, retargetViewState, type ViewState } from '../lib/views';
 import { describeQuery, execute, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
@@ -29,6 +29,13 @@ const SAMPLE_ROWS = 200;
 const SLOW_QUERY_MS = 250;
 const COLUMN_NAME_MAX = 100;
 const SQL_EDITOR_SLIDE_MS = 200;
+
+/**
+ * Statements that answer with rows, and so can stand behind a view. Anything else —
+ * an UPDATE, a DELETE — is run for what it changes rather than what it returns, and
+ * DESCRIBE cannot be asked about it.
+ */
+const RETURNS_ROWS = /^\s*(WITH|SELECT|FROM|VALUES|TABLE|DESCRIBE|SHOW|SUMMARIZE|PIVOT|UNPIVOT|EXPLAIN|CALL)\b/i;
 
 const longestWord = (text: string): number =>
     text.split(/\s+/).reduce((max, word) => Math.max(max, word.length), 0);
@@ -275,6 +282,23 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             clearSql();
             return;
         }
+        if (!RETURNS_ROWS.test(text)) {
+            try {
+                await execute(text);
+                // Whatever it touched, the grid is now looking at something older.
+                setRevision((r) => r + 1);
+                notifications.show({
+                    color: 'teal',
+                    icon: <Check size={18} />,
+                    title: 'Statement ran',
+                    message: 'The view has been re-read.',
+                    autoClose: 4000,
+                });
+            } catch (error) {
+                failed('run that statement', error);
+            }
+            return;
+        }
         try {
             // DESCRIBE both validates the query and names its columns, without running it.
             const found = await describeQuery(text);
@@ -308,8 +332,8 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                     color: 'yellow',
                     icon: <TriangleAlert size={18} />,
                     title: 'Stored as it was',
-                    message: `${column} cannot hold ${value} apart from ${before}, so the value is unchanged.`,
-                    autoClose: 6000,
+                    message: 'This column’s type cannot tell the new value from the old one, so the row is unchanged. A larger difference will hold, and the SQL editor can write to the table directly.',
+                    autoClose: 7000,
                 });
             }
             setRevision((r) => r + 1);
@@ -426,7 +450,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                         <Suspense fallback={<Box className="sql-editor-pending" />}>
                             <SqlEditor
                                 value={viewState.sql}
-                                alias={dataset.alias}
+                                alias={dataset.table}
                                 columns={dataset.columns}
                                 onRun={(draft) => void applySql(draft)}
                                 onClear={clearSql}
