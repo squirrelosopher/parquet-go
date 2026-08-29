@@ -8,13 +8,18 @@ const BACKSLASH = String.fromCharCode(92);
 const WILDCARD = new RegExp(`[${BACKSLASH}${BACKSLASH}%_]`);
 
 /**
- * The one rendering of a value, used both to draw it and to match it. Going through
- * the engine is what keeps those two in step: a value formatted in JavaScript would
- * have to agree with this expression, and for a single-precision column it does not —
- * DuckDB renders FLOAT 9.083333 as `9.083333`, while the same bits read in JavaScript
- * come out as the double 9.083333015441895.
+ * The one rendering of a value, used both to draw it and to match it, so that no type
+ * can show one thing and be searched as another.
+ *
+ * Single precision is written out in full rather than at the width it is stored: DuckDB
+ * would render FLOAT 9.083333015441895 as `9.083333`, which is the shortest decimal
+ * that survives the round trip but not the whole of the value. The type is fixed per
+ * column, so the planner settles the branch once rather than per row.
  */
-const asText = (column: string) => `CAST(${ident(column)} AS VARCHAR)`;
+const asText = (column: string) => {
+    const id = ident(column);
+    return `CASE WHEN typeof(${id}) = 'FLOAT' THEN CAST(CAST(${id} AS DOUBLE) AS VARCHAR) ELSE CAST(${id} AS VARCHAR) END`;
+};
 
 /**
  * Substring match against the displayed text, so it works on numbers and dates too.
