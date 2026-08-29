@@ -43,7 +43,6 @@ const whenIdle = () => new Promise<void>((resolve) => {
     ric ? ric(() => resolve(), { timeout: 400 }) : setTimeout(resolve, 150);
 });
 
-/** Respect a browser told to go easy on the connection: the engine is a large download. */
 const savingData = () =>
     (navigator as unknown as { connection?: { saveData?: boolean } }).connection?.saveData === true;
 
@@ -249,9 +248,6 @@ export function App() {
         return () => window.removeEventListener('hashchange', onHash);
     }, []);
 
-    // Nothing can be read until the engine is up, and booting it takes seconds that
-    // have nothing to do with the file. Started here it runs while the page sits
-    // waiting for one, so by the time a file lands the wait is usually already spent.
     useEffect(() => {
         if (savingData()) {
             return;

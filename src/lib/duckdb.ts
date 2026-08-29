@@ -20,7 +20,6 @@ let pending: Promise<duckdb.AsyncDuckDB> | null = null;
 let connecting: Promise<duckdb.AsyncDuckDBConnection> | null = null;
 let queue: Promise<unknown> = Promise.resolve();
 
-/** Boots the engine once, on whichever comes first: a prepare or a real read. */
 function getDb(): Promise<duckdb.AsyncDuckDB> {
     if (!pending) {
         pending = (async () => {
@@ -34,11 +33,6 @@ function getDb(): Promise<duckdb.AsyncDuckDB> {
     return pending;
 }
 
-/**
- * Starts the engine without waiting for it. The bundle is tens of megabytes to
- * fetch and compile, and none of it depends on the file, so the work can begin
- * before there is one. A file that arrives mid-boot awaits this same promise.
- */
 export function prepareEngine(): void {
     void getDb().catch(() => undefined);
 }
@@ -69,23 +63,22 @@ interface LoadedTable {
     rowCount: number;
 }
 
-/**
- * A table is named after the file it came from, so a query in the SQL box reads the
- * way the file does. Two files can ask for the same name, and a file can be loaded
- * again, so what a file was actually given is remembered rather than recomputed.
- */
 const tableNames = new Map<string, string>();
 
-function tableNameFor(id: string, fileName: string): string {
-    const existing = tableNames.get(id);
-    if (existing) {
-        return existing;
+export function tableNameOf(id: string, fileName: string): string {
+    return tableNames.get(id) ?? aliasFor(fileName);
+}
+
+function claimTableName(id: string, fileName: string): string {
+    const claimed = tableNames.get(id);
+    if (claimed) {
+        return claimed;
     }
     const base = aliasFor(fileName);
     const taken = new Set(tableNames.values());
     let name = base;
-    for (let n = 2; taken.has(name); n++) {
-        name = `${base}_${n}`;
+    for (let suffix = 2; taken.has(name); suffix++) {
+        name = `${base}_${suffix}`;
     }
     tableNames.set(id, name);
     return name;
@@ -103,7 +96,7 @@ const literal = (value: string) => `'${value.replace(/'/g, "''")}'`;
 export async function loadTable(id: string, name: string, buffer: ArrayBuffer): Promise<LoadedTable> {
     const db = await getDb();
     const file = `${id}-${name}`;
-    const table = tableNameFor(id, name);
+    const table = claimTableName(id, name);
 
     // Registering transfers the buffer to the worker and detaches it, so hand over a
     // copy — the caller still needs the original to put in IndexedDB.
@@ -144,16 +137,7 @@ export async function queryScalar(sql: string): Promise<number> {
     return typeof value === 'bigint' ? Number(value) : Number(value ?? 0);
 }
 
-export async function execute(sql: string): Promise<void> {
-    await run((conn) => conn.query(sql));
-}
-
-/**
- * Runs a statement for its effect and reports how many rows it changed. DuckDB answers
- * an UPDATE, INSERT or DELETE with a single count; a statement that changes no rows —
- * creating a table, dropping one — answers with nothing to count, and says so as null.
- */
-export async function executeCounting(sql: string): Promise<number | null> {
+export async function execute(sql: string): Promise<number | null> {
     const rows = await query(sql);
     const count = rows.length === 1 ? (rows[0] as { Count?: unknown }).Count : undefined;
     if (typeof count === 'bigint') {

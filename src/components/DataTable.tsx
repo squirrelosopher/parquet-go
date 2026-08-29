@@ -13,7 +13,7 @@ import { ColumnFilter } from './ColumnFilter';
 import { ArrowUp, ArrowDown, Check, Filter, FilterX, Columns3, TriangleAlert } from 'lucide-react';
 import type { Dataset, Row } from '../lib/types';
 import { resolveUpdater, retargetViewState, type ViewState } from '../lib/views';
-import { describeQuery, execute, executeCounting, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
+import { describeQuery, execute, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
 import { cellSql, countSql, exportSql, pageSql, trimStatement, updateCellSql, type QuerySpec } from '../lib/sql';
 import { formatCell } from '../lib/format';
 import { ShortcutId } from '../lib/shortcuts';
@@ -30,11 +30,6 @@ const SLOW_QUERY_MS = 250;
 const COLUMN_NAME_MAX = 100;
 const SQL_EDITOR_SLIDE_MS = 200;
 
-/**
- * Statements that answer with rows, and so can stand behind a view. Anything else —
- * an UPDATE, a DELETE — is run for what it changes rather than what it returns, and
- * DESCRIBE cannot be asked about it.
- */
 const RETURNS_ROWS = /^\s*(WITH|SELECT|FROM|VALUES|TABLE|DESCRIBE|SHOW|SUMMARIZE|PIVOT|UNPIVOT|EXPLAIN|CALL)\b/i;
 
 const longestWord = (text: string): number =>
@@ -52,6 +47,24 @@ const failed = (action: string, error: unknown) => notifications.show({
     icon: <TriangleAlert size={18} />,
     title: `Could not ${action}`,
     message: error instanceof Error ? error.message : String(error),
+    autoClose: 6000,
+});
+
+const notifyStatement = (affected: number | null) => notifications.show({
+    color: 'teal',
+    icon: <Check size={18} />,
+    title: 'Statement ran',
+    message: affected === null
+        ? 'No rows to change.'
+        : `${affected.toLocaleString()} ${affected === 1 ? 'row' : 'rows'} affected.`,
+    autoClose: 4000,
+});
+
+const notifyUnchanged = () => notifications.show({
+    color: 'yellow',
+    icon: <TriangleAlert size={18} />,
+    title: 'Not updated',
+    message: 'Use the SQL editor to write to the table directly.',
     autoClose: 6000,
 });
 
@@ -130,9 +143,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         search,
         sorting: viewState.sorting,
     };
-    // Effects key off the query's shape, not the objects that describe it. Split at
-    // the predicate, because which rows qualify and how they are ordered change on
-    // different beats and cost different queries.
+    // Effects key off the query's shape, not the objects that describe it.
     const predicateKey = JSON.stringify([spec.table, spec.sql, spec.columns, spec.filters, spec.search]);
     const specKey = `${predicateKey}|${JSON.stringify(spec.sorting)}`;
 
@@ -166,8 +177,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         return () => { cancelled = true; window.clearTimeout(announce); };
     }, [specKey, pageIndex, pageSize, revision, ready]);
 
-    // The count only moves when the predicate does: neither paging through rows nor
-    // reordering them changes how many there are, so neither re-scans.
+    // The count only moves when the predicate does, so paging does not re-scan.
     useEffect(() => {
         if (!ready) {
             return;
@@ -270,7 +280,6 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         [ShortcutId.ToggleFullscreen]: toggleFullscreen,
     });
 
-    /** Back to the file's own table, keeping whatever narrowing still applies to it. */
     const clearSql = useCallback(() => {
         setSqlColumns(null);
         onViewStateChange((previous) => retargetViewState({ ...previous, sql: '' }, dataset.columns));
@@ -282,32 +291,19 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             clearSql();
             return;
         }
-        if (!RETURNS_ROWS.test(text)) {
-            try {
-                const affected = await executeCounting(text);
-                // Whatever it touched, the grid is now looking at something older.
-                setRevision((r) => r + 1);
-                notifications.show({
-                    color: 'teal',
-                    icon: <Check size={18} />,
-                    title: 'Statement ran',
-                    message: affected === null
-                        ? 'No rows to change.'
-                        : `${affected.toLocaleString()} ${affected === 1 ? 'row' : 'rows'} affected.`,
-                    autoClose: 4000,
-                });
-            } catch (error) {
-                failed('run that statement', error);
-            }
-            return;
-        }
+        const isQuery = RETURNS_ROWS.test(text);
         try {
-            // DESCRIBE both validates the query and names its columns, without running it.
-            const found = await describeQuery(text);
-            setSqlColumns(found);
-            onViewStateChange((previous) => retargetViewState({ ...previous, sql: text }, found));
+            if (isQuery) {
+                // DESCRIBE both validates the query and names its columns, without running it.
+                const found = await describeQuery(text);
+                setSqlColumns(found);
+                onViewStateChange((previous) => retargetViewState({ ...previous, sql: text }, found));
+            } else {
+                notifyStatement(await execute(text));
+                setRevision((r) => r + 1);
+            }
         } catch (error) {
-            failed('run that query', error);
+            failed(isQuery ? 'run that query' : 'run that statement', error);
         }
     }, [onViewStateChange, clearSql]);
 
@@ -315,28 +311,15 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         setLabels((prev) => prev.map((l, i) => (i === index ? name : l)));
     }, []);
 
-    /**
-     * A column stores what its type can hold, which is not always what was typed: four
-     * bytes of float keep about seven digits, so an edit past that lands back on the
-     * value already there and nothing appears to happen. Reading the cell back is the
-     * only way to know, and saying so is better than leaving the edit looking ignored.
-     */
-    const updateCell = useCallback(async (rowId: number, column: string, before: string, value: string) => {
-        if (value === before) {
+    const updateCell = useCallback(async (rowId: number, column: string, previous: string, next: string) => {
+        if (next === previous) {
             return;
         }
         try {
-            await execute(updateCellSql(dataset.table, rowId, column, value));
+            await execute(updateCellSql(dataset.table, rowId, column, next));
             const [stored] = await query(cellSql(dataset.table, rowId, column));
-            const after = formatCell(stored?.[column]);
-            if (after === before) {
-                notifications.show({
-                    color: 'yellow',
-                    icon: <TriangleAlert size={18} />,
-                    title: 'Not updated',
-                    message: 'Use the SQL editor to write to the table directly.',
-                    autoClose: 6000,
-                });
+            if (formatCell(stored?.[column]) === previous) {
+                notifyUnchanged();
             }
             setRevision((r) => r + 1);
         } catch (error) {
@@ -407,10 +390,6 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             IconFilterOff: (props: object) => <FilterX {...props} size={18} />,
             IconColumns: (props: object) => <Columns3 {...props} size={18} />,
         },
-        // With nothing to show, MRT fills the body with its own "no results" row. That
-        // row is a notice rather than a record, so mark the empty body and let the
-        // stylesheet treat what is inside it as one. MRT builds the row itself, outside
-        // the per-row props, which is why the mark goes here.
         mantineTableBodyProps: rows.length ? undefined : { mod: { empty: true } },
         initialState: { density: 'xs' },
         // Sorting, filters and column layout live on the view, so each tab keeps its own.
@@ -453,8 +432,6 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                             <SqlEditor
                                 value={viewState.sql}
                                 alias={dataset.table}
-                                // The row id is unique and whole, so it is the one handle that
-                                // addresses a single row without a value having to round.
                                 columns={[ROW_ID, ...dataset.columns]}
                                 onRun={(draft) => void applySql(draft)}
                                 onClear={clearSql}

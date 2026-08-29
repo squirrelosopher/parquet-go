@@ -209,8 +209,6 @@ body {
     border-radius: var(--mantine-radius-md);
 }
 
-/* A bare mark in the corner: no surface of its own, just the glyph and what it
-   has to say when the cursor finds it. */
 .sql-editor-hint {
     position: absolute;
     top: 6px;
@@ -501,8 +499,6 @@ body {
     }
 }
 
-/* The "no results" notice is not a row of data: it does not answer to the cursor the
-   way a record does, and it sits at the grid's own text size rather than above it. */
 .mantine-Table-tbody[data-empty] tr:hover > td {
     background-color: transparent;
 }

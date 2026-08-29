@@ -4,7 +4,7 @@ import { Box as CubeIcon, Pencil, Copy, FileDown, Trash2, Eye, EyeOff } from 'lu
 import { DropZoneLayout, FileDrop } from './FileDrop';
 import { RenameDialog } from './RenameDialog';
 import { ConfirmDialog } from './ConfirmDialog';
-import { aliasFor } from '../lib/alias';
+import { tableNameOf } from '../lib/duckdb';
 import type { CsvExportOptions } from '../lib/exportCsv';
 import type { FileMeta } from '../lib/store';
 
@@ -75,7 +75,7 @@ export function Sidebar({ files, activeId, onSwitch, onAdd, onRemove, onRename, 
                     {files.map((file) => (
                         <Tooltip
                             key={file.id}
-                            label={showAliases ? `${file.name} · ${aliasFor(file.name)}` : file.name}
+                            label={showAliases ? `${file.name} · ${tableNameOf(file.id, file.name)}` : file.name}
                             openDelay={400}
                             position="right"
                             withArrow
@@ -90,7 +90,7 @@ export function Sidebar({ files, activeId, onSwitch, onAdd, onRemove, onRename, 
                             >
                                 <CubeIcon size={16} style={{ flex: 'none' }} />
                                 <Text className="file-item-name" fz="sm">{file.name}</Text>
-                                {showAliases && <Text className="file-item-alias" fz="xs">{aliasFor(file.name)}</Text>}
+                                {showAliases && <Text className="file-item-alias" fz="xs">{tableNameOf(file.id, file.name)}</Text>}
                             </Group>
                         </Tooltip>
                     ))}

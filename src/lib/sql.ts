@@ -6,29 +6,23 @@ export const literal = (value: string) => `'${value.replace(/'/g, "''")}'`;
 
 const BACKSLASH = String.fromCharCode(92);
 const WILDCARD = new RegExp(`[${BACKSLASH}${BACKSLASH}%_]`);
+const SOURCE = 'src';
 
-/**
- * The one rendering of a value, used both to draw it and to match it, so that no type
- * can show one thing and be searched as another.
- *
- * Single precision is written out in full rather than at the width it is stored: DuckDB
- * would render FLOAT 9.083333015441895 as `9.083333`, which is the shortest decimal
- * that survives the round trip but not the whole of the value. The type is fixed per
- * column, so the planner settles the branch once rather than per row.
- */
 const asText = (column: string) => {
     const id = ident(column);
     return `CASE WHEN typeof(${id}) = 'FLOAT' THEN CAST(CAST(${id} AS DOUBLE) AS VARCHAR) ELSE CAST(${id} AS VARCHAR) END`;
 };
 
+const renderedColumn = (column: string) => `${asText(column)} AS ${ident(column)}`;
+
 /**
- * Substring match against the displayed text, so it works on numbers and dates too.
+ * Cast first: a substring match should work on numbers and dates too.
  *
  * The UI's filters are plain substrings, so % and _ must lose their wildcard meaning.
  * An ESCAPE clause drops DuckDB off its fast LIKE path — roughly 4x on a full scan —
  * so it is only attached when the text actually contains something to escape.
  */
-const containsText = (column: string, value: string) => {
+const matchesText = (column: string, value: string) => {
     const cast = asText(column);
     if (!WILDCARD.test(value)) {
         return `${cast} ILIKE ${literal(`%${value}%`)}`;
@@ -39,20 +33,12 @@ const containsText = (column: string, value: string) => {
 
 const NUMERIC = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 
-/**
- * One number has many spellings, and text cannot see past the one on the page:
- * 9.083333 and 9.083333015441895 are the same float written at single and double
- * precision, as are 2475 and 2475.0. So a filter that reads as a number is also
- * compared as one, and finds the value it names however the column happens to store
- * it. TRY_CAST leaves anything that is not a number to the substring match alone.
- */
-const contains = (column: string, value: string) => {
-    const text = containsText(column, value);
-    if (!NUMERIC.test(value)) {
-        return text;
-    }
-    const asNumber = `TRY_CAST(${ident(column)} AS DOUBLE)`;
-    return `(${text} OR ${asNumber} = TRY_CAST(${literal(value)} AS DOUBLE))`;
+const matchesNumber = (column: string, value: string) =>
+    `TRY_CAST(${ident(column)} AS DOUBLE) = TRY_CAST(${literal(value)} AS DOUBLE)`;
+
+const matches = (column: string, value: string) => {
+    const text = matchesText(column, value);
+    return NUMERIC.test(value) ? `(${text} OR ${matchesNumber(column, value)})` : text;
 };
 
 /** A view, expressed as the query it stands for. */
@@ -69,13 +55,7 @@ export interface QuerySpec {
 /** A trailing semicolon is fine on its own but not once the query is a subquery. */
 export const trimStatement = (sql: string | undefined) => (sql ?? '').trim().replace(/;+\s*$/, '');
 
-/**
- * Filters, sorting and paging wrap the user's query rather than replacing it. The
- * alias gives ordering something to point at that is never an output column, so a
- * rendered column cannot be mistaken for the value it was rendered from.
- */
-const SOURCE = 'src';
-
+/** Filters, sorting and paging wrap the user's query rather than replacing it. */
 function source(spec: QuerySpec): string {
     const sql = trimStatement(spec.sql);
     return `${sql ? `(${sql})` : ident(spec.table)} AS ${ident(SOURCE)}`;
@@ -86,28 +66,17 @@ function where(spec: QuerySpec): string {
     for (const filter of spec.filters) {
         const value = String(filter.value ?? '').trim();
         if (value) {
-            terms.push(contains(String(filter.id), value));
+            terms.push(matches(String(filter.id), value));
         }
     }
     const search = spec.search.trim();
     if (search && spec.columns.length) {
-        terms.push(`(${spec.columns.map((c) => contains(c, search)).join(' OR ')})`);
+        terms.push(`(${spec.columns.map((c) => matches(c, search)).join(' OR ')})`);
     }
     return terms.length ? ` WHERE ${terms.join(' AND ')}` : '';
 }
 
-/**
- * Ties have to break somewhere, and left to itself the engine breaks them differently
- * each run: rows shuffle whenever the grid refetches, and one row can show up on two
- * pages while another shows up on none. The row id is unique, so ordering by it last
- * settles every tie and settles it the same way every time.
- *
- * A query brings no row id with it, and nothing else in a result set is guaranteed
- * unique, so a view reading from one keeps whatever order the engine gives it.
- */
 function order(spec: QuerySpec): string {
-    // Qualified, so a column rendered to text in the select list cannot capture the
-    // name and turn a numeric ordering into an alphabetical one.
     const keys = spec.sorting.map((s) => `${ident(SOURCE)}.${ident(s.id)} ${s.desc ? 'DESC' : 'ASC'} NULLS LAST`);
     if (!trimStatement(spec.sql)) {
         keys.push(`${ident(SOURCE)}.${ident(ROW_ID)}`);
@@ -115,14 +84,8 @@ function order(spec: QuerySpec): string {
     return keys.length ? ` ORDER BY ${keys.join(', ')}` : '';
 }
 
-/**
- * The grid draws text, so the engine renders it: what a cell shows is then the very
- * expression the filter matches against, for every type there is. Only the page on
- * screen is rendered, and only once filtering, ordering and paging have run against
- * the real types.
- */
 export function pageSql(spec: QuerySpec, limit: number, offset: number): string {
-    const shown = spec.columns.map((c) => `${asText(c)} AS ${ident(c)}`);
+    const shown = spec.columns.map(renderedColumn);
     // A user query carries no row id, so rows from one are not editable.
     const selected = trimStatement(spec.sql) ? shown : [ident(ROW_ID), ...shown];
     return `SELECT ${selected.join(', ')} FROM ${source(spec)}${where(spec)}${order(spec)} LIMIT ${limit} OFFSET ${offset}`;
@@ -143,7 +106,6 @@ export function updateCellSql(table: string, rowId: number, column: string, valu
     return `UPDATE ${ident(table)} SET ${ident(column)} = ${literal(value)} WHERE ${ident(ROW_ID)} = ${rowId}`;
 }
 
-/** One cell, rendered the way the grid renders it — to see what a write actually stored. */
 export function cellSql(table: string, rowId: number, column: string): string {
-    return `SELECT ${asText(column)} AS ${ident(column)} FROM ${ident(table)} WHERE ${ident(ROW_ID)} = ${rowId}`;
+    return `SELECT ${renderedColumn(column)} FROM ${ident(table)} WHERE ${ident(ROW_ID)} = ${rowId}`;
 }
