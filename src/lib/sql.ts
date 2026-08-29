@@ -17,19 +17,37 @@ const WILDCARD = new RegExp(`[${BACKSLASH}${BACKSLASH}%_]`);
 const asText = (column: string) => `CAST(${ident(column)} AS VARCHAR)`;
 
 /**
- * Match against the displayed text, so a substring works on numbers and dates too.
+ * Substring match against the displayed text, so it works on numbers and dates too.
  *
  * The UI's filters are plain substrings, so % and _ must lose their wildcard meaning.
  * An ESCAPE clause drops DuckDB off its fast LIKE path — roughly 4x on a full scan —
  * so it is only attached when the text actually contains something to escape.
  */
-const contains = (column: string, value: string) => {
+const containsText = (column: string, value: string) => {
     const cast = asText(column);
     if (!WILDCARD.test(value)) {
         return `${cast} ILIKE ${literal(`%${value}%`)}`;
     }
     const escaped = value.replace(new RegExp(`([${BACKSLASH}${BACKSLASH}%_])`, 'g'), `${BACKSLASH}$1`);
     return `${cast} ILIKE ${literal(`%${escaped}%`)} ESCAPE ${literal(BACKSLASH)}`;
+};
+
+const NUMERIC = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
+/**
+ * One number has many spellings, and text cannot see past the one on the page:
+ * 9.083333 and 9.083333015441895 are the same float written at single and double
+ * precision, as are 2475 and 2475.0. So a filter that reads as a number is also
+ * compared as one, and finds the value it names however the column happens to store
+ * it. TRY_CAST leaves anything that is not a number to the substring match alone.
+ */
+const contains = (column: string, value: string) => {
+    const text = containsText(column, value);
+    if (!NUMERIC.test(value)) {
+        return text;
+    }
+    const asNumber = `TRY_CAST(${ident(column)} AS DOUBLE)`;
+    return `(${text} OR ${asNumber} = TRY_CAST(${literal(value)} AS DOUBLE))`;
 };
 
 /** A view, expressed as the query it stands for. */
