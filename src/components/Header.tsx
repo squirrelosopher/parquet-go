@@ -5,7 +5,7 @@ import { PARQUET_FILE_PICKER_ACCEPT } from '../lib/fileTypes';
 import { ShortcutId } from '../lib/shortcuts';
 import { useShortcuts } from '../lib/useShortcuts';
 
-const GITHUB_URL = 'https://github.com/squirrelosopher';
+const GITHUB_URL = 'https://github.com/squirrelosopher/parquet-go';
 const COFFEE_URL = 'https://buymeacoffee.com/squirrelosopher';
 
 interface HeaderProps {
