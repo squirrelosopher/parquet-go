@@ -20,7 +20,7 @@ let pending: Promise<duckdb.AsyncDuckDB> | null = null;
 let connecting: Promise<duckdb.AsyncDuckDBConnection> | null = null;
 let queue: Promise<unknown> = Promise.resolve();
 
-/** Boots the engine on first use — nothing is downloaded until a file is opened. */
+/** Boots the engine once, on whichever comes first: a prepare or a real read. */
 function getDb(): Promise<duckdb.AsyncDuckDB> {
     if (!pending) {
         pending = (async () => {
@@ -32,6 +32,15 @@ function getDb(): Promise<duckdb.AsyncDuckDB> {
         })();
     }
     return pending;
+}
+
+/**
+ * Starts the engine without waiting for it. The bundle is tens of megabytes to
+ * fetch and compile, and none of it depends on the file, so the work can begin
+ * before there is one. A file that arrives mid-boot awaits this same promise.
+ */
+export function prepareEngine(): void {
+    void getDb().catch(() => undefined);
 }
 
 /**

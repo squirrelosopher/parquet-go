@@ -123,8 +123,11 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         search,
         sorting: viewState.sorting,
     };
-    // Effects key off the query's shape, not the objects that describe it.
-    const specKey = JSON.stringify([spec.table, spec.sql, spec.columns, spec.filters, spec.search, spec.sorting]);
+    // Effects key off the query's shape, not the objects that describe it. Split at
+    // the predicate, because which rows qualify and how they are ordered change on
+    // different beats and cost different queries.
+    const predicateKey = JSON.stringify([spec.table, spec.sql, spec.columns, spec.filters, spec.search]);
+    const specKey = `${predicateKey}|${JSON.stringify(spec.sorting)}`;
 
     // One page of rows — the only rows that ever become JS objects.
     useEffect(() => {
@@ -156,7 +159,8 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         return () => { cancelled = true; window.clearTimeout(announce); };
     }, [specKey, pageIndex, pageSize, revision, ready]);
 
-    // The count only moves when the predicate does, so paging does not re-scan.
+    // The count only moves when the predicate does: neither paging through rows nor
+    // reordering them changes how many there are, so neither re-scans.
     useEffect(() => {
         if (!ready) {
             return;
@@ -175,7 +179,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             }
         })();
         return () => { cancelled = true; };
-    }, [specKey, revision, ready]);
+    }, [predicateKey, revision, ready]);
 
     // Column widths come from a fixed sample so they do not shift from page to page.
     useEffect(() => {
