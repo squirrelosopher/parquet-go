@@ -45,11 +45,21 @@ function columnMinSize(header: string, sample: string[]): number {
 
 const editInputStyles = { input: { padding: 0, height: 'auto', minHeight: 0, lineHeight: 'inherit', fontSize: 'inherit', border: 'none', borderRadius: 0 } };
 
+// The engine follows its message with the statement it was given and a caret under
+// the offending token. That is the generated SQL, not anything the reader wrote, so
+// the notice keeps the sentence and leaves the rest.
+const SQL_ECHO = /\s*LINE \d+:[\s\S]*$/;
+
+const reason = (error: unknown) => {
+    const text = error instanceof Error ? error.message : String(error);
+    return text.replace(SQL_ECHO, '').replace(/\s+/g, ' ').trim();
+};
+
 const failed = (action: string, error: unknown) => notifications.show({
     color: 'red',
     icon: <TriangleAlert size={18} />,
     title: `Could not ${action}`,
-    message: error instanceof Error ? error.message : String(error),
+    message: reason(error),
     autoClose: 6000,
 });
 
