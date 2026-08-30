@@ -91,15 +91,24 @@ export function pageSql(spec: QuerySpec, limit: number, offset: number): string 
     return `SELECT ${selected.join(', ')} FROM ${source(spec)}${where(spec)}${order(spec)} LIMIT ${limit} OFFSET ${offset}`;
 }
 
+export function tableCountSql(table: string): string {
+    return `SELECT count(*)::BIGINT AS n FROM ${ident(table)}`;
+}
+
 export function countSql(spec: QuerySpec): string {
     return `SELECT count(*)::BIGINT AS n FROM ${source(spec)}${where(spec)}`;
 }
 
-/** Renamed columns are aliased, so the export carries the headers on screen. */
-export function exportSql(spec: QuerySpec, labels: string[], limit?: number): string {
-    const columns = spec.columns.map((c, i) => `${ident(c)} AS ${ident(labels[i] ?? c)}`).join(', ');
+/**
+ * The columns to write are given rather than taken from the spec: the export carries
+ * what the grid shows, in that order, under the headers on screen. The spec still
+ * decides which rows qualify, so hiding a column narrows the export without narrowing
+ * the search that built it.
+ */
+export function exportSql(spec: QuerySpec, columns: string[], labels: string[], limit?: number): string {
+    const selected = columns.map((c, i) => `${ident(c)} AS ${ident(labels[i] ?? c)}`).join(', ');
     const limited = limit ? ` LIMIT ${limit}` : '';
-    return `SELECT ${columns} FROM ${source(spec)}${where(spec)}${order(spec)}${limited}`;
+    return `SELECT ${selected} FROM ${source(spec)}${where(spec)}${order(spec)}${limited}`;
 }
 
 export function updateCellSql(table: string, rowId: number, column: string, value: string): string {

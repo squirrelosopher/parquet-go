@@ -22,6 +22,8 @@ export interface View {
  */
 export interface ViewState {
     sorting: MRT_SortingState;
+    /** Header text per column, by position; a missing entry means the column's own name. */
+    labels: string[];
     columnFilters: MRT_ColumnFiltersState;
     /** The query this view reads from; empty means the file's own table. */
     sql: string;
@@ -36,6 +38,7 @@ const PAGE_SIZE = 25;
 export function createViewState(columns: string[]): ViewState {
     return {
         sorting: columns.length ? [{ id: columns[0], desc: false }] : [],
+        labels: [],
         columnFilters: [],
         sql: '',
         pagination: { pageIndex: 0, pageSize: PAGE_SIZE },
@@ -62,10 +65,16 @@ export function retargetViewState(state: ViewState, columns: string[]): ViewStat
     const available = new Set(columns);
     const sorting = state.sorting.filter((s) => available.has(s.id));
     const fallback = columns.length ? [{ id: columns[0], desc: false }] : [];
+    // A hand-made order and hand-written headers describe one set of columns. They
+    // survive a query that returns that same set and are dropped by one that does not.
+    const sameColumns = state.columnOrder.length === columns.length
+        && state.columnOrder.every((c) => available.has(c));
     return {
         ...state,
         columnFilters: state.columnFilters.filter((f) => available.has(String(f.id))),
         sorting: sorting.length ? sorting : fallback,
+        columnOrder: sameColumns ? state.columnOrder : [],
+        labels: sameColumns ? state.labels : [],
         pagination: { ...state.pagination, pageIndex: 0 },
     };
 }

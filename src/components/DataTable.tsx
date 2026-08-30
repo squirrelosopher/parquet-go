@@ -14,7 +14,7 @@ import { ArrowUp, ArrowDown, Check, Filter, FilterX, Columns3, TriangleAlert } f
 import type { Dataset, Row } from '../lib/types';
 import { resolveUpdater, retargetViewState, type ViewState } from '../lib/views';
 import { describeQuery, execute, exportQueryCsv, query, queryScalar, ROW_ID } from '../lib/duckdb';
-import { cellSql, countSql, exportSql, pageSql, trimStatement, updateCellSql, type QuerySpec } from '../lib/sql';
+import { cellSql, countSql, exportSql, pageSql, tableCountSql, trimStatement, updateCellSql, type QuerySpec } from '../lib/sql';
 import { formatCell } from '../lib/format';
 import { ShortcutId } from '../lib/shortcuts';
 import { useShortcuts } from '../lib/useShortcuts';
@@ -30,7 +30,10 @@ const SLOW_QUERY_MS = 250;
 const COLUMN_NAME_MAX = 100;
 const SQL_EDITOR_SLIDE_MS = 200;
 
-const RETURNS_ROWS = /^\s*(WITH|SELECT|FROM|VALUES|TABLE|DESCRIBE|SHOW|SUMMARIZE|PIVOT|UNPIVOT|EXPLAIN|CALL)\b/i;
+const LEADING_COMMENTS = /^(?:\s*(?:--[^\n]*|\/\*[\s\S]*?\*\/))*\s*/;
+const RETURNS_ROWS = /^(WITH|SELECT|FROM|VALUES|TABLE|DESCRIBE|SHOW|SUMMARIZE|PIVOT|UNPIVOT|EXPLAIN|CALL)\b/i;
+
+const returnsRows = (sql: string) => RETURNS_ROWS.test(sql.replace(LEADING_COMMENTS, ''));
 
 const longestWord = (text: string): number =>
     text.split(/\s+/).reduce((max, word) => Math.max(max, word.length), 0);
@@ -77,7 +80,7 @@ interface DataTableProps {
 }
 
 export function DataTable({ dataset, exportRef, viewState, onViewStateChange, tabs }: DataTableProps) {
-    const [labels, setLabels] = useState(dataset.columns);
+
     const [compact, setCompact] = useState(true);
     // The toolbar search and the filter row's visibility span every view, so they sit
     // beside the grid rather than inside a view's state. The filter *values* stay per view.
@@ -91,16 +94,16 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
     const [rows, setRows] = useState<Row[]>([]);
     const [sample, setSample] = useState<Row[]>([]);
     const [total, setTotal] = useState(dataset.rowCount);
+    const [tableRows, setTableRows] = useState(dataset.rowCount);
     const [loading, setLoading] = useState(false);
     const [revision, setRevision] = useState(0);
 
     const userSql = trimStatement(viewState.sql);
     const keys = useMemo(() => (userSql ? sqlColumns ?? [] : dataset.columns), [userSql, sqlColumns, dataset.columns]);
     const ready = !userSql || sqlColumns !== null;
-
-    useEffect(() => {
-        setLabels(keys);
-    }, [keys]);
+    // A query whose columns are unknown has nothing to select. Asking anyway builds a
+    // SELECT with an empty list, which fails a second time over the top of the first.
+    const readable = ready && (!userSql || keys.length > 0);
 
     useEffect(() => {
         setSearch('');
@@ -120,9 +123,10 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                 if (!cancelled) {
                     setSqlColumns(found);
                 }
-            } catch {
+            } catch (error) {
                 if (!cancelled) {
                     setSqlColumns([]);
+                    failed('run this view\u2019s saved query', error);
                 }
             }
         })();
@@ -149,7 +153,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
 
     // One page of rows — the only rows that ever become JS objects.
     useEffect(() => {
-        if (!ready) {
+        if (!readable) {
             return;
         }
         let cancelled = false;
@@ -175,11 +179,11 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             }
         })();
         return () => { cancelled = true; window.clearTimeout(announce); };
-    }, [specKey, pageIndex, pageSize, revision, ready]);
+    }, [specKey, pageIndex, pageSize, revision, readable]);
 
     // The count only moves when the predicate does, so paging does not re-scan.
     useEffect(() => {
-        if (!ready) {
+        if (!readable) {
             return;
         }
         let cancelled = false;
@@ -196,11 +200,11 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             }
         })();
         return () => { cancelled = true; };
-    }, [predicateKey, revision, ready]);
+    }, [predicateKey, revision, readable]);
 
     // Column widths come from a fixed sample so they do not shift from page to page.
     useEffect(() => {
-        if (!ready) {
+        if (!readable) {
             return;
         }
         let cancelled = false;
@@ -217,7 +221,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             }
         })();
         return () => { cancelled = true; };
-    }, [dataset.table, userSql, ready]);
+    }, [dataset.table, userSql, readable]);
 
     /**
      * Native fullscreen is taken on the document rather than the grid: only descendants
@@ -291,7 +295,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             clearSql();
             return;
         }
-        const isQuery = RETURNS_ROWS.test(text);
+        const isQuery = returnsRows(text);
         try {
             if (isQuery) {
                 // DESCRIBE both validates the query and names its columns, without running it.
@@ -300,16 +304,21 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                 onViewStateChange((previous) => retargetViewState({ ...previous, sql: text }, found));
             } else {
                 notifyStatement(await execute(text));
+                setTableRows(await queryScalar(tableCountSql(dataset.table)));
                 setRevision((r) => r + 1);
             }
         } catch (error) {
             failed(isQuery ? 'run that query' : 'run that statement', error);
         }
-    }, [onViewStateChange, clearSql]);
+    }, [onViewStateChange, clearSql, dataset.table]);
 
     const renameColumn = useCallback((index: number, name: string) => {
-        setLabels((prev) => prev.map((l, i) => (i === index ? name : l)));
-    }, []);
+        onViewStateChange((previous) => {
+            const labels = [...previous.labels];
+            labels[index] = name;
+            return { ...previous, labels };
+        });
+    }, [onViewStateChange]);
 
     const updateCell = useCallback(async (rowId: number, column: string, previous: string, next: string) => {
         if (next === previous) {
@@ -324,6 +333,9 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             setRevision((r) => r + 1);
         } catch (error) {
             failed('save that cell', error);
+            // The grid is still showing what was typed; only a re-read puts the
+            // stored value back on screen.
+            setRevision((r) => r + 1);
         }
     }, [dataset.table]);
 
@@ -334,13 +346,24 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         [onViewStateChange],
     );
 
+    /** As above, for the parts that decide which rows qualify: the page they were on is gone. */
+    const patchPredicate = useCallback(
+        <K extends keyof ViewState>(key: K) => (updater: MRT_Updater<ViewState[K]>) =>
+            onViewStateChange((previous) => ({
+                ...previous,
+                [key]: resolveUpdater(updater, previous[key]),
+                pagination: { ...previous.pagination, pageIndex: 0 },
+            })),
+        [onViewStateChange],
+    );
+
     const columns = useMemo<MRT_ColumnDef<Row>[]>(() => keys.map((key, index) => ({
         id: key,
         accessorFn: (row) => row[key],
-        header: labels[index] ?? key,
+        header: viewState.labels[index] ?? key,
         Header: ({ column }) => (
             <EditableHeader
-                label={labels[index] ?? ''}
+                label={viewState.labels[index] ?? key}
                 maxLength={COLUMN_NAME_MAX}
                 // A filtered column is accented whether or not the filter row is
                 // open, so the header alone tells you what is narrowing the view.
@@ -349,7 +372,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
                 onSort={() => column.toggleSorting()}
             />
         ),
-        Filter: ({ column }) => <ColumnFilter column={column} placeholder={`Filter by ${labels[index] ?? key}`} />,
+        Filter: ({ column }) => <ColumnFilter column={column} placeholder={`Filter by ${viewState.labels[index] ?? key}`} />,
         Cell: ({ cell }) => formatCell(cell.getValue()),
         mantineEditTextInputProps: ({ row }) => ({
             variant: 'unstyled',
@@ -360,7 +383,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         }),
         enableHiding: key !== lockedKey,
         minSize: columnMinSize(key, sample.map((row) => formatCell(row[key]))),
-    })), [keys, labels, sample, lockedKey, renameColumn, updateCell]);
+    })), [keys, viewState.labels, sample, lockedKey, renameColumn, updateCell]);
 
     const table = useMantineReactTable({
         columns,
@@ -406,7 +429,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             isFullScreen: fullscreen,
         },
         onSortingChange: patch('sorting'),
-        onColumnFiltersChange: patch('columnFilters'),
+        onColumnFiltersChange: patchPredicate('columnFilters'),
         onPaginationChange: patch('pagination'),
         onColumnVisibilityChange: patch('columnVisibility'),
         onColumnSizingChange: patch('columnSizing'),
@@ -415,8 +438,10 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             setFullscreen((previous) => resolveUpdater(updater, previous)),
         onShowColumnFiltersChange: (updater: MRT_Updater<boolean>) =>
             setShowFilters((previous) => resolveUpdater(updater, previous)),
-        onGlobalFilterChange: (updater: MRT_Updater<string | undefined>) =>
-            setSearch((previous) => resolveUpdater(updater, previous || undefined) ?? ''),
+        onGlobalFilterChange: (updater: MRT_Updater<string | undefined>) => {
+            setSearch((previous) => resolveUpdater(updater, previous || undefined) ?? '');
+            patch('pagination')((previous) => ({ ...previous, pageIndex: 0 }));
+        },
         mantinePaperProps: { withBorder: false, radius: 0, className: compact ? 'pv-compact' : undefined, style: { height: '100%', display: 'flex', flexDirection: 'column' } },
         mantineTopToolbarProps: { className: 'pv-top-toolbar' },
         mantineTableContainerProps: { style: { flex: 1 } },
@@ -444,7 +469,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         renderTopToolbarCustomActions: () => <>{tabs}</>,
         renderBottomToolbarCustomActions: () => (
             <Text className="dataset-summary" c="dimmed" fz="xs" style={{ whiteSpace: 'nowrap' }}>
-                {dataset.name} · {userSql ? `query · ${keys.length} cols` : `${dataset.rowCount.toLocaleString()} rows × ${keys.length} cols`}
+                {dataset.name} · {userSql ? `query · ${keys.length} cols` : `${tableRows.toLocaleString()} rows × ${keys.length} cols`}
             </Text>
         ),
         renderToolbarInternalActions: ({ table }) => (
@@ -463,7 +488,10 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
         exportRef.current = (options) => {
             void (async () => {
                 try {
-                    const bytes = await exportQueryCsv(exportSql(spec, labels, options.limit), options.header);
+                    // Leaf columns include the grid's own spacers, which are not data.
+                    const shown = table.getVisibleLeafColumns().map((c) => c.id).filter((id) => keys.includes(id));
+                    const headers = shown.map((id) => viewState.labels[keys.indexOf(id)] ?? id);
+                    const bytes = await exportQueryCsv(exportSql(spec, shown, headers, options.limit), options.header);
                     downloadCsv(dataset.name, bytes);
                 } catch (error) {
                     failed('export that view', error);
@@ -471,7 +499,7 @@ export function DataTable({ dataset, exportRef, viewState, onViewStateChange, ta
             })();
         };
         return () => { exportRef.current = null; };
-    }, [specKey, labels, dataset.name, exportRef]);
+    }, [specKey, viewState.labels, keys, table, dataset.name, exportRef]);
 
     return <MantineReactTable table={table} />;
 }
